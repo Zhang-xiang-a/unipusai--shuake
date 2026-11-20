@@ -23,7 +23,7 @@ async function fixture(t,records={}) {
     innerText:async()=>submitted?'答题小结 答题情况 主观题已作答 (1/1)':'question',
     evaluateAll:async()=>selector==='.pc-menu-node-name'?[{index:0,name:'Reading',section:'Section A',unit:3}]:selector==='.question-common-abs-choice'?0:[],
   });
-  const page={url:()=>tasks[0].url,locator,getByText:()=>locator('summary'),evaluate:async()=>{},addInitScript:async()=>{},frames:()=>[],screenshot:async()=>{}};
+  const page={url:()=>tasks[0].url,locator,getByText:()=>locator('summary'),evaluate:async()=>true,addInitScript:async()=>{},frames:()=>[],screenshot:async()=>{},keyboard:{press:async()=>{}}};
   const args={context:{pages:()=>[page]},output,gate:async()=>{},wait:async()=>{},setCourse:()=>{},dryRun:false,maxSteps:10,argv:['--unit','3','--text-only'],
     policy:runnerPolicy({runnerPolicy:{skippedTasks:'remember',deepseekFailure:'continue',listeningChoices:'first'}},[]),
     snapshot:async()=>({text:'question',controls:[{id:'f',tag:'input',writable:true,value},{id:'s',tag:'button',text:'提交'}]}),

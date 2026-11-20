@@ -7,6 +7,7 @@ import {selectQueue, sliceFrom} from './queue.mjs';
 import {decideStalledRecovery, isSubmitControl, roundSignature, nextStall} from './core.mjs';
 import {canContinueReplyFailure, shouldSkipRecord} from './policy.mjs';
 import {isChoiceControl,choiceSubmitPlan} from './choice.mjs';
+import {isLoginPage} from './browser-session.mjs';
 
 // 听力关键词来自课程配置（course.listeningKeywords）；不传时用内置默认，保持旧行为。
 export function isListeningTask(task, text='', keywords) {
@@ -158,10 +159,34 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     progress.tasks[t.key]={...progress.tasks[t.key],number,total};
     if(shouldSkipRecord(progress.tasks[t.key],policy)) { console.log(`${label} 保留已有状态 ${progress.tasks[t.key].status}，跳过执行`); continue; }
     await gate();
-    const dismiss=async()=>page.evaluate(label=>{
-      for(const e of document.querySelectorAll('.ant-modal-wrap button'))if(e.innerText.trim()===label)e.click();
-    },dismissText);
+    // 弹窗文案不止「我知道了」一种，而遮罩会让后续所有点击超时，所以多路兜底：
+    // 常见文案 → 右上角关闭 → Escape，并确认遮罩真的消失。
+    const dismiss=async()=>{
+      const labels=[dismissText,'我知道了','知道了','确定','确认','关闭','跳过','继续','取消','下次再说'];
+      for(let attempt=0;attempt<3;attempt++) {
+        const cleared=await page.evaluate(labels=>{
+          const wraps=Array.from(document.querySelectorAll('.ant-modal-wrap'))
+            .filter(w=>w.getBoundingClientRect().height>0 && getComputedStyle(w).display!=='none');
+          if(!wraps.length)return true;
+          for(const wrap of wraps) {
+            const buttons=Array.from(wrap.querySelectorAll('button'));
+            const hit=buttons.find(b=>labels.includes(b.innerText.replace(/\s/g,'').trim()));
+            if(hit) {hit.click();continue;}
+            const close=wrap.querySelector('.ant-modal-close');
+            if(close)close.click();
+          }
+          return false;
+        },labels);
+        if(cleared)return true;
+        await wait(600);
+      }
+      try { await page.keyboard?.press('Escape'); } catch {}
+      await wait(400);
+      return !(await page.locator('.ant-modal-wrap:visible').count());
+    };
     await dismiss();
+    // 登录过期时页面会被踢到 SSO，后面所有点击都会超时，这里提前给出可读原因。
+    if(isLoginPage(page,{ssoHost:course.login?.ssoHost}))throw new Error('课程标签已跳到登录页，登录态失效：请在专用 Edge 里重新登录后重跑');
     if(!currentOnly) {
     const menus=await page.locator('.pc-menu-node-name').evaluateAll(es=>es.map((e,index)=>{
       let section='',unit='';
@@ -176,7 +201,20 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     if(target.length!==1)throw new Error('无法唯一定位任务菜单 '+t.key);
     await page.locator('#root-loading').waitFor({state:'hidden',timeout:15000});
     await dismiss();
-    await page.locator('.pc-menu-node-name').nth(target[0].index).click({timeout:5000});await wait(1500);await dismiss();
+    const menuItem=page.locator('.pc-menu-node-name').nth(target[0].index);
+    try {
+      await menuItem.click({timeout:5000});
+    } catch(firstError) {
+      // 弹窗遮挡、页面还在跳转、或登录态失效都会走到这里：清一次弹窗再试一次。
+      await dismiss();
+      await wait(800);
+      try { await menuItem.click({timeout:8000}); }
+      catch {
+        if(isLoginPage(page,{ssoHost:course.login?.ssoHost}))throw new Error('登录态已失效（页面被跳到登录页）：请在专用 Edge 里重新登录后重跑');
+        throw new Error(`点击课程目录项超时，多半被弹窗遮挡或页面未就绪：${String(firstError.message).split('\n')[0]}`);
+      }
+    }
+    await wait(1500);await dismiss();
     const tab=page.locator('.pc-tab-view-container').getByText(t.path[2],{exact:true});
     // Match rendered titles exactly to avoid Critical thinking / skill ambiguity.
     const tabs=page.locator('.pc-tab-view-container');
