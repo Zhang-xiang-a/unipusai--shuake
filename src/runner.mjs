@@ -53,6 +53,11 @@ if (stepArg >= 0) {
 const output = courseOutputDir(config.course.key);
 // 课件页域名（ucontent）与目录页域名（uai）都来自配置，页面切换时用它判断是否打开了新标签。
 const coursewareHost = (config.login?.courseHosts || []).find(host => /ucontent/i.test(host)) || 'ucontent.unipus.cn';
+// 队列筛选参数只在答题模式生效，漏加 --answer 时明确提示，避免在目录页空转。
+if (!argv.includes('--answer') && argv.some(arg => ['--unit','--type','--skip-banked-cloze','--from','--current','--retry-skipped'].includes(arg))) {
+  console.log('提示：--unit / --type / --skip-banked-cloze / --from / --current / --retry-skipped 只在 --answer 模式下生效。');
+  console.log('      当前是通用导航模式，不会读任务队列；要按队列答题请加 --answer。');
+}
 logger.info(`启动：${describeCourse(config.course)}，dryRun=${config.dryRun}，输出目录 ${output}`);
 await fs.mkdir(output, {recursive: true});
 if (argv.includes('--list')) {
@@ -449,7 +454,13 @@ try {
       checkpoint.completionCandidate = plan.evidence; await save();
       console.log('模型报告完成，证据已保存；仍需核对必修任务清单。'); break;
     }
-    if (!plan.actions.length) throw new Error('模型未给出可执行动作');
+    if (!plan.actions.length) {
+      // 目录页没有题目控件时模型会如实拒绝，这里给出能直接照做的下一步。
+      const hasInput = state.controls.some(c => ['input', 'textarea', 'select'].includes(c.tag));
+      throw new Error(hasInput
+        ? `模型没有给出可执行动作${plan.reason ? `（${plan.reason}）` : ''}；页面有输入框，可重跑或改用 --answer 答题队列`
+        : `当前页面没有题目控件，多半停在课程目录页${plan.reason ? `（${plan.reason}）` : ''}；答题请加 --answer，或先在浏览器里点进具体任务`);
+    }
     await execute(plan,state.controls);
     const after = await snapshot();
     const changed = after.url !== state.url || after.text !== state.text;
