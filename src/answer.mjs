@@ -235,7 +235,8 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     const learning=!listeningWithQuestions && ['阅读或尚未识别的交互','音视频学习','词汇卡片'].includes(t.type);
     console.log(`${tag} ${learning?'学习':'答题'}：Unit ${t.unit} / ${t.path.join(' / ')}  [${t.type||'未知题型'}]`);
     if(learning) {
-      if(dryRun){console.log('学习任务仅预览，未执行');return;}
+      // 预览模式下学习任务也走一步并跳过，绝不能 return：否则第一个阅读任务就把整个队列结束掉。
+      if(dryRun){console.log('学习任务仅预览，未执行');if(++steps>=maxSteps)return;continue;}
       const result=await learnTask({page,type:t.type,gate,wait,readingSeconds,uiTexts,config:{readCommand:async()=>{
         try{return JSON.parse(await fs.readFile(path.join(output,'control.json'),'utf8')).command;}catch(e){if(e.code==='ENOENT')return 'resume';throw e;}
       }},onProgress:async state=>{progress.tasks[t.key]={status:'learning',state};await save();}});

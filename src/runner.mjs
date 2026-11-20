@@ -19,6 +19,44 @@ import {connectBrowser} from './net.mjs';
 
 const argv = process.argv;
 
+// 拼错开关（--excute / --exectue）以前会被静默忽略，于是 dryRun 保持 true，
+// 看起来像「跑起来了但什么都没做」。这里直接拦下并给出近似建议。
+const KNOWN_FLAGS = new Set([
+  '--all','--answer','--course','--courses','--crawl','--current','--depth','--dry-run','--execute',
+  '--from','--from-task','--inspect','--list','--new-chat','--retry-skipped','--setup',
+  '--skip-banked-cloze','--steps','--tasks','--text-only','--type','--unit','--yes','--help',
+]);
+function suggestFlag(flag) {
+  const target = flag.slice(2);
+  let best = null, bestScore = Infinity;
+  for (const known of KNOWN_FLAGS) {
+    const candidate = known.slice(2);
+    if (Math.abs(candidate.length - target.length) > 3) continue;
+    const distance = levenshtein(target, candidate);
+    if (distance < bestScore) { bestScore = distance; best = known; }
+  }
+  return bestScore <= 3 ? best : null;
+}
+function levenshtein(a, b) {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) rows[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      rows[i][j] = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+  }
+  return rows[a.length][b.length];
+}
+const unknownFlags = argv.slice(2).filter(arg => arg.startsWith('--') && !KNOWN_FLAGS.has(arg));
+if (unknownFlags.length) {
+  for (const flag of unknownFlags) {
+    const hint = suggestFlag(flag);
+    console.error(`未识别的参数：${flag}${hint ? `，你是不是想写 ${hint}？` : ''}`);
+  }
+  console.error(`可用参数：${[...KNOWN_FLAGS].join(' ')}`);
+  process.exit(1);
+}
+
 // --courses：只读列出四个课程分组是否已填写，不连接浏览器、不占用 runner.lock。
 if (argv.includes('--courses')) {
   const rows = listCourses(loadRawConfig());
