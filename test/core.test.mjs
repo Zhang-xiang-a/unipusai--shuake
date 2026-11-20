@@ -186,3 +186,17 @@ test('a frozen reply that tried to write JSON fails fast instead of burning the 
   assert.equal(isUnusableReply({text:'{短',unchangedReads:9}),false);              // 太短，可能还在流式输出
   assert.equal(isUnusableReply({text:'',unchangedReads:9}),false);                // 空回复不能误判
 });
+
+test('submit button written as 提 交 is recognised when submitTexts is configured',()=>{
+  // 开放问答页把提交按钮渲染成 <a class="btn">提 交</a>，字间带空格。
+  const anchor={text:'提 交',tag:'a',className:'btn'};
+  assert.equal(isSubmitControl(anchor),true);                                  // 内置正则能过
+  assert.equal(isSubmitControl(anchor,{submitTexts:['提交']}),true);           // 配置文案也应该过
+  assert.equal(isSubmitControl({text:'取 消'},{submitTexts:['提交']}),false);
+  assert.equal(findSubmitControl([{id:'8',...anchor}],{submitTexts:['提交']})?.text,'提 交');
+  // 配置文案下，同一轮既填写又提交仍要被拦住。
+  assert.throws(()=>validatePlan(
+    {actions:[{type:'fill',id:'5',value:'x'},{type:'click',id:'8'}]},
+    [{id:'5',tag:'textarea',editable:true},{id:'8',...anchor}],
+    {submitTexts:['提交']}),/填写与提交必须分轮/);
+});

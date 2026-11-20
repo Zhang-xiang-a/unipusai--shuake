@@ -96,7 +96,7 @@ export function validatePlan(plan, controls, {allowedHosts = ['uai.unipus.cn', '
       return submitTexts.some(pattern => {
         const value = String(pattern).trim();
         if (!value) return false;
-        return value.startsWith('^') ? new RegExp(value, 'i').test(text) : text.toLowerCase().includes(value.toLowerCase());
+        return value.startsWith('^') ? new RegExp(value, 'i').test(text) : squeeze(text).includes(squeeze(value));
       });
     }
     return /提\s*交|Submit/i.test(text);
@@ -136,10 +136,17 @@ export function isSubmitControl(control, {submitTexts} = {}) {
       const value = String(pattern).trim();
       if (!value) return false;
       if (value.startsWith('^')) return new RegExp(value, 'i').test(text);
-      return text.toLowerCase() === value.toLowerCase();
+      // 开放问答页的提交按钮常写成 <a class="btn">提 交</a>，字间带空格，
+      // 严格相等会漏判，导致点了提交却不走确认弹窗流程。
+      return squeeze(text) === squeeze(value);
     });
   }
   return /^(提\s*交|提\s*交答案|提交答案|submit)$/i.test(text);
+}
+
+/** 去掉所有空白并转小写，用于比较按钮文案（「提 交」与「提交」视为同一个）。 */
+function squeeze(value) {
+  return String(value ?? '').replace(/\s+/g, '').toLowerCase();
 }
 
 export function findSubmitControl(controls, options = {}) {
