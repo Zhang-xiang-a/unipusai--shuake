@@ -253,8 +253,8 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
         const entry=progress.tasks[t.key] || {};
         progress.tasks[t.key]={...entry,status:'failed',reason:error.message,failureCode:error.code,failureFile,updated:new Date().toISOString()};
         await save();
-        await logRound({event:'deepseek-failure-continue',number,total,task:t.key,round,message:error.message});
-        console.log(`${label} DeepSeek 重试仍失败，已记录 failed，继续下一任务`);
+        await logRound({event:'model-failure-continue',number,total,task:t.key,round,message:error.message});
+        console.log(`${label} 模型重试仍失败，已记录 failed，继续下一任务`);
         break;
       }
       await gate();

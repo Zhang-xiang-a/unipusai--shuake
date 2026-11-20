@@ -6,8 +6,8 @@
 
 | 命令 | 作用 |
 |---|---|
-| `npm run browser` | 启动或显示专用 Edge。已运行时复用并恢复最小化窗口，只补建真正缺失的课程 / DeepSeek 标签。 |
-| `npm run setup` | 检查并保存登录会话。先在专用 Edge 里登录课程平台和 DeepSeek。 |
+| `npm run browser` | 启动或显示专用 Edge。已运行时复用并恢复最小化窗口，只补建真正缺失的课程标签（`answerSource=deepseek-web` 时还包括 DeepSeek 标签）。 |
+| `npm run setup` | 检查并保存登录会话。走 API 时只需要登录课程平台。 |
 | `npm start` | 默认运行。默认是预览模式（`dryRun=true`），不填写、不提交。 |
 | `npm run crawl` | 采集必修目录、题干、控件与任务清单，不答题、不提交。 |
 | `npm run inventory` | 根据已采集资料生成题型统计报告。 |
@@ -33,8 +33,8 @@
 | `--type 翻译` | 只处理指定题型，名称需与 `npm run inventory` 报告一致。 |
 | `--skip-banked-cloze` | 排除选词完形（Banked cloze）。 |
 | `--retry-skipped` | 重新尝试本次筛选范围内记录为 `skipped` 的任务；已提交和已学习的任务仍保留。 |
-| `--new-chat` | 在现有 DeepSeek 标签里新建一个对话。断点续跑时不要加。 |
-| `--text-only` | 只发送题干和控件信息，不上传截图。 |
+| `--new-chat` | 仅 `answerSource=deepseek-web` 时有效：在 DeepSeek 标签里新开对话。走 API 时每次请求本来就是独立的，加了会提示并忽略。 |
+| `--text-only` | 只发送题干和控件信息，不发送截图。省 token、也更快；但图表题、版式复杂的题建议带上截图。 |
 | `--steps 100` | 本次最多执行多少个队列步骤或答题轮次。 |
 | `--current` | 只处理当前打开的那个必修子任务。 |
 | `--from 12` | 从队列第 12 个任务开始（序号看 `--list` 的输出）。 |
@@ -50,7 +50,9 @@
 
 ```powershell
 npm install
-npm run browser      # 打开专用 Edge，登录课程平台和 DeepSeek
+Copy-Item config.example.json config.json
+Copy-Item .env.example .env      # 填 OPENAI_API_KEY 和 OPENAI_MODEL
+npm run browser      # 打开专用 Edge，登录课程平台
 npm run setup        # 自动检测并保存登录会话
 npm run courses      # 确认目标课程已填写
 npm run crawl        # 采集必修任务清单
@@ -100,14 +102,15 @@ npm run skip
 6. 阅读停留 10 秒，暂停期间不计时；视频静音正常播放到结束。
 7. “已执行学习动作”“已提交”“课程确认完成”是三种不同状态，最终以课程侧记录为准。
 8. 跳过的任务不代表课程完成；`skipped` 下次默认继续跳过，加 `--retry-skipped` 才重新尝试。
-9. 防卡死：同一题里 DeepSeek 连续返回纯 `wait` 或重复相同内容算作没有进展；达到 `answerLoop.maxStallRounds`（默认 3）轮时，如果页面上的输入框和选项确实都已作答，脚本会直接点击提交并核验答题小结，否则带原因停止。
+9. 防卡死：同一题里模型连续返回纯 `wait` 或重复相同内容算作没有进展；达到 `answerLoop.maxStallRounds`（默认 3）轮时，如果页面上的输入框和选项确实都已作答，脚本会直接点击提交并核验答题小结，否则带原因停止。
 10. 单题轮次上限 `answerLoop.maxRoundsPerTask`（默认 12）。每轮诊断写入 `artifacts/<courseKey>/answer-rounds.jsonl`。
-11. DeepSeek 超时、回复无法解析或计划未通过控件校验时，脚本会用精简提示重试一次；仍失败就记录 `failed` 并继续下一个任务，不会提交该失败题。
-12. 停止命令、登录异常、页面操作错误会直接中断，不会被“失败后继续”规则吞掉。
+11. 模型请求超时、回复无法解析或计划未通过控件校验时，脚本会带上失败原因重试一次；仍失败就记录 `failed` 并继续下一个任务，不会提交该失败题。
+12. 停止命令、登录异常、页面操作错误会直接中断，不会被“失败后继续”规则吞掉。`401/403/404/422` 这类接口错误同样立即中断——通常是 Key 过期、模型名写错或余额不足。
 13. 确认提交成功：`answer-progress.json` 中该任务 `status=submitted`，`evidence` 是答题小结文字；同目录的 `answer-result-<编号>.png` 是提交后的截图。
 14. 听力任务：填空统一填 `1`，单选每组选第一项，不参与 1% 随机改选。这条规则只保证流程通过，不保证得分。
-15. 选择题与判断题每次点击后都会核验选中状态；全部选好后下一轮直接提交，不重复询问 DeepSeek。
+15. 选择题与判断题每次点击后都会核验选中状态；全部选好后下一轮直接提交，不重复询问模型。
 16. 修改 `config.json` 后重启脚本即可生效，Edge 保持原窗口。
+17. 接口兼容性会自动兜底：服务不支持 `response_format: json_object` 时改用普通输出（JSON 校验照旧）；推理模型拒绝 `temperature` 时省略该参数重试。两条降级都会写进 `events.jsonl`。
 
 ## 5. 日志与产物位置
 
@@ -121,6 +124,7 @@ npm run skip
 | `artifacts/<courseKey>/answer-rounds.jsonl` | 每轮答题诊断（轮次、是否卡住、动作、提交） |
 | `artifacts/<courseKey>/last-run-summary.json` | 本次队列结束时仍未完成的任务 |
 | `artifacts/<courseKey>/failure*.json` | 出错时的现场快照 |
+| `artifacts/<courseKey>/api-failed-<nonce>-<n>.json` | 模型接口返回的原始内容（Key 已脱敏） |
 | `browser-profile/` | 专用 Edge 的用户数据与登录会话 |
 
-`artifacts/`、`logs/`、`browser-profile/`、`config.json` 都已在 `.gitignore` 中排除，不要提交或分享。
+`artifacts/`、`logs/`、`browser-profile/`、`config.json`、`.env` 都已在 `.gitignore` 中排除，不要提交或分享。

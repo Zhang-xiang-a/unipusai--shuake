@@ -78,16 +78,29 @@ test('旧配置的 delayMs / readingSeconds 会迁移到新结构', async () => 
 test('示例配置不含账号、密码、cookie、token 之类字段', async () => {
   const raw = await example();
   const keys = [];
+  const values = [];
   const walk = value => {
     for (const [key, child] of Object.entries(value)) {
       keys.push(key.toLowerCase());
       if (child && typeof child === 'object' && !Array.isArray(child)) walk(child);
+      else if (typeof child === 'string') values.push(child);
     }
   };
   walk(raw);
-  for (const word of ['password', 'passwd', 'cookie', 'token', 'username', 'account', '密码', '账号']) {
+  // 只认凭据本身的名字；maxOutputTokens 这类接口参数不算。
+  const bannedKeys = ['password', 'passwd', 'cookie', 'token', 'username', 'account', 'apikey', 'api_key', 'secret', 'credential'];
+  for (const word of bannedKeys) {
+    assert.equal(
+      keys.some(key => key === word || key.endsWith('_' + word) || key.endsWith('.' + word)),
+      false,
+      `示例配置不应出现 ${word} 字段`,
+    );
+  }
+  for (const word of ['密码', '账号']) {
     assert.equal(keys.some(key => key.includes(word)), false, `示例配置不应出现 ${word} 字段`);
   }
+  // 值里也不能出现真 Key。
+  assert.equal(values.some(value => /sk-[A-Za-z0-9_-]{16,}/.test(value)), false, '示例配置不应包含真实 API Key');
 });
 
 test('listCourses 汇总四门课，未填写的标记为不可运行', async () => {

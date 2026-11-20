@@ -31,7 +31,7 @@ async function ensurePages() {
   await showBrowserPage(context, course);
   console.log(created.length
     ? `已显示专用 Edge，恢复缺失标签：${created.join('、')}。`
-    : '已显示并复用专用 Edge，原课程和 DeepSeek 标签均保留。');
+    : '已显示并复用专用 Edge，保留现有标签。');
   if (course.url().includes(config.login?.ssoHost || 'sso.unipus.cn')) {
     console.log('原课程标签目前是登录页，请在此窗口登录 U 校园后运行答题命令；脚本不会自动填写账号密码。');
   }

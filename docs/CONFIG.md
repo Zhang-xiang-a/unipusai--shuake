@@ -29,7 +29,7 @@
 | `courseId` | string | 是 | 课程 ID。课程入口 URL 形如 `https://uai.unipus.cn/app/cmgt/resource-detail/<课程ID>`，`<课程ID>` 就是它。 |
 | `courseUrl` | string | 是 | 课程目录入口。保留 `{courseId}` 占位符时会自动替换成上面的 `courseId`。 |
 | `unitCount` | number | 是 | 这门课有多少个单元，取值 1~30。`--unit` 的上限也来自这里。 |
-| `answerSource` | string | 否 | `deepseek-web`（默认，用 DeepSeek 网页产出答案）或 `manual`（只用脚本做学习任务，答题交给你自己）。 |
+| `answerSource` | string | 否 | `openai-api`（默认，走 OpenAI 兼容接口，每轮独立无历史）、`deepseek-web`（旧的网页端模式，需要额外一个 DeepSeek 标签）、`manual`（脚本只做学习任务，答题交给你自己）。 |
 | `submitTexts` | string[] | 否 | 提交按钮的文案。默认 `["提交", "提交答案", "Submit"]`。元素以 `^` 开头时按正则匹配，其余按包含匹配。 |
 | `manualTaskTypes` | string[] | 否 | 需要你手动完成、脚本只跳过不代做的题型，默认 `["项目作品上传", "复习自评"]`。 |
 | `skipTaskTypes` | string[] | 否 | 额外跳过、且不写进队列的题型，默认空数组。 |
@@ -37,7 +37,7 @@
 | `referencePathAlias` | string | 否 | 教材原文所在目录的名字，用于把原文作为答案校对参考。默认 `Reading the text`。 |
 | `typeRules` | object | 否 | 覆盖题型识别规则，见第 4 节。 |
 | `uiTexts` | object | 否 | 覆盖页面文案，见第 3 节。 |
-| `network` / `throttle` / `answerLoop` / `learningPolicy` | object | 否 | 在单门课里覆盖 `defaults` 的同名配置。 |
+| `network` / `throttle` / `answerLoop` / `learningPolicy` / `api` | object | 否 | 在单门课里覆盖 `defaults` 的同名配置。 |
 
 ### 怎么找到课程 ID
 
@@ -49,7 +49,28 @@
 
 ## 3. `defaults` 通用字段
 
+### `defaults.api`
+
+`answerSource` 为 `openai-api` 时生效。接口按 OpenAI 格式调用：`POST {baseUrl}/chat/completions`。
+
+| 字段 | 默认值 | 说明 |
+|---|---|---|
+| `baseUrl` | `https://api.openai.com/v1` | 接口根地址，脚本会自动补 `/chat/completions`。远程必须是 `https`；`127.0.0.1` / `localhost` 允许 `http`（本地模型）。 |
+| `model` | 空 | 支持图片输入的模型 ID。留空或写成 `<...>` 占位符时会直接报错，提示你去 `.env` 填。 |
+| `keyEnv` | `OPENAI_API_KEY` | 从哪个环境变量取 Key。Key 本身不写进配置文件。 |
+| `timeoutMs` | `120000` | 单次请求超时，取值 100~600000。慢模型可调到 `240000`。 |
+| `maxOutputTokens` | `8192` | 单次回复上限，取值 128~65536。触发 `finish_reason=length` 时脚本会提示调大。 |
+| `temperature` | `0` | 取值 0~2。推理模型不接受该参数时，脚本自动省略并重试。 |
+| `responseFormat` | `json_object` | `json_object` 或 `none`。服务不支持 JSON 模式时自动降级。 |
+| `imageDetail` | `auto` | `auto` / `low` / `high`，控制截图传给模型的精度档位。 |
+| `maxReferenceChars` | `6000` | 单段教材原文最多送多少字符，取值 500~30000。 |
+| `outputLimitField` | `max_tokens` | 输出上限的字段名。新推理模型改用 `max_completion_tokens` 时改这里。 |
+
+发送内容只有三样：本轮题干文本（完整，不截断）、控件清单（只保留 `id`/`tag`/`type`/`text` 等固定字段）、最多 3 段教材原文（各截到 `maxReferenceChars`）。每次请求都是独立的 system + user 两条消息，不带任何历史，所以不会出现“越答越长”的上下文膨胀。
+
 ### `defaults.deepseek`
+
+仅当 `answerSource` 为 `deepseek-web` 时才有用；默认走 API，可以不看这一段。
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
@@ -160,10 +181,16 @@
 | 变量 | 作用 | 示例 |
 |---|---|---|
 | `UNIPUS_PROFILE` | 指定当前课程分组 | `course2` |
+| `UNIPUS_ANSWER_SOURCE` | 覆盖 `answerSource` | `openai-api` / `deepseek-web` / `manual` |
+| `OPENAI_API_KEY` | 模型接口的 Key（变量名可被 `api.keyEnv` 改） | `sk-xxxxxxxx` |
+| `OPENAI_BASE_URL` | 覆盖 `api.baseUrl` | `https://api.openai.com/v1` |
+| `OPENAI_MODEL` | 覆盖 `api.model` | `gpt-4o-mini` |
 | `UNIPUS_COURSE_ID` | 覆盖当前课程的 `courseId` | `12345678901` |
 | `UNIPUS_BROWSER_ENDPOINT` | 覆盖 CDP 地址（必须是 127.0.0.1） | `http://127.0.0.1:9228` |
-| `DEEPSEEK_URL` | 覆盖 DeepSeek 地址 | `https://chat.deepseek.com/` |
+| `DEEPSEEK_URL` | 覆盖 DeepSeek 地址（仅网页端模式） | `https://chat.deepseek.com/` |
 | `UNIPUS_DRY_RUN` | `1` 强制只预览，`0` 允许执行 | `1` |
+
+Key 与模型建议写在项目根目录的 `.env` 里（复制 `.env.example`），脚本启动时会读入；已经存在的系统环境变量优先，不会被 `.env` 覆盖。
 
 PowerShell 里临时用法：
 
@@ -198,5 +225,6 @@ course2  大学英语 2  12000000002  可运行：是
 ## 7. 安全约定
 
 - 配置文件里不存账号、密码、cookie、token；登录态只存在于本机 `browser-profile/`。
-- `config.example.json` 全部是占位符，可以直接公开。
-- `config.json`、`browser-profile/`、`artifacts/`、`logs/` 都已被 `.gitignore` 排除，不要手动提交或打包分享。
+- API Key 只放 `.env` 或系统环境变量，`api.keyEnv` 只用来说明变量名。日志与失败现场里的 Key 会被替换成 `[REDACTED]`。
+- `config.example.json` 全部是占位符，可以公开。
+- `config.json`、`.env`、`browser-profile/`、`artifacts/`、`logs/` 都已被 `.gitignore` 排除，不要手动提交或打包分享。

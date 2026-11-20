@@ -1,4 +1,13 @@
-export class DeepSeekReplyError extends Error {
+export class ModelReplyError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = 'ModelReplyError';
+    this.code = 'MODEL_REPLY_FAILED';
+    this.details = details;
+  }
+}
+
+export class DeepSeekReplyError extends ModelReplyError {
   constructor(message, details = {}) {
     super(message);
     this.name = 'DeepSeekReplyError';
@@ -34,5 +43,5 @@ export function shouldSkipRecord(entry, policy) {
 }
 
 export function canContinueReplyFailure(error, policy) {
-  return error instanceof DeepSeekReplyError && policy.deepseekFailure === 'continue';
+  return error instanceof ModelReplyError && !error.fatal && policy.deepseekFailure === 'continue';
 }

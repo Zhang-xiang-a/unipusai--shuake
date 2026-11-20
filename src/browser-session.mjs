@@ -4,6 +4,10 @@
 export const DEFAULT_COURSE_HOSTS = ['uai.unipus.cn', 'ucontent.unipus.cn'];
 export const DEFAULT_SSO_HOST = 'sso.unipus.cn';
 
+export function needsWebSolver(config) {
+  return (config.course?.answerSource ?? config.answerSource ?? 'deepseek-web')==='deepseek-web';
+}
+
 export function isCourseUrl(value, {includeLogin = true, hosts = DEFAULT_COURSE_HOSTS, ssoHost = DEFAULT_SSO_HOST} = {}) {
   try {
     const url = new URL(value);
@@ -58,7 +62,9 @@ export async function ensureBrowserPages(context, config) {
   });
   const created = [];
   const timeout = config.network?.gotoTimeoutMs ?? 30000;
-  for (const [name, target] of [['course', config.courseUrl], ['deepseek', config.deepseekUrl]]) {
+  const targets=[['course',config.courseUrl]];
+  if(needsWebSolver(config))targets.push(['deepseek',config.deepseekUrl]);
+  for (const [name, target] of targets) {
     if (name === 'course' ? course : solver) continue;
     const page = await context.newPage();
     if (name === 'course') course = page; else solver = page;

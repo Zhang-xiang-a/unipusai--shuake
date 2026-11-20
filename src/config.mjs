@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {CONFIG_FILE, CONFIG_EXAMPLE_FILE} from './paths.mjs';
+import {loadLocalEnv} from './env.mjs';
 
 export const COURSE_KEYS = ['course1', 'course2', 'course3', 'course4'];
 
@@ -22,6 +23,17 @@ export const DEFAULTS = {
   uploadScreenshots: true,
   muteCourseMedia: true,
   dryRun: true,
+  api: {
+    baseUrl: 'https://api.openai.com/v1',
+    model: '',
+    keyEnv: 'OPENAI_API_KEY',
+    timeoutMs: 120000,
+    maxOutputTokens: 8192,
+    responseFormat: 'json_object',
+    imageDetail: 'auto',
+    maxReferenceChars: 6000,
+    temperature: 0,
+  },
   deepseek: {
     url: 'https://chat.deepseek.com/',
     composer: 'textarea',
@@ -137,6 +149,7 @@ export function loadRawConfig({file = CONFIG_FILE} = {}) {
  * 这样旧脚本里的 config.courseUrl、config.delayMs 之类写法仍然可用。
  */
 export function loadConfig({file = CONFIG_FILE, argv = process.argv, env = process.env, validate = true} = {}) {
+  loadLocalEnv({file:path.join(path.dirname(file),'.env'),env});
   return resolveConfig(loadRawConfig({file}), {argv, env, file, validate});
 }
 
@@ -168,7 +181,10 @@ export function resolveConfig(raw, {argv = process.argv, env = process.env, vali
     throttle: mergeConfig(defaults.throttle, course.throttle || {}),
     answerLoop: mergeConfig(defaults.answerLoop, course.answerLoop || {}),
     learningPolicy: mergeConfig(defaults.learningPolicy, course.learningPolicy || {}),
+    api: mergeConfig(mergeConfig(defaults.api,raw.api || {}),raw.courses?.[selector]?.api || {}),
   };
+  flat.api.baseUrl=env.OPENAI_BASE_URL || flat.api.baseUrl;
+  flat.api.model=env.OPENAI_MODEL || flat.api.model;
   // 旧配置用顶层 delayMs / fillDelayMs / choiceDelayMs / readingSeconds，这里迁移到新结构。
   if (raw.delayMs || raw.fillDelayMs || raw.choiceDelayMs) {
     flat.throttle = {
@@ -221,7 +237,7 @@ export function resolveCourse(raw, selector = COURSE_KEYS[0], env = process.env)
     manualTaskTypes: merged.manualTaskTypes || ['项目作品上传', '复习自评'],
     skipTaskTypes: merged.skipTaskTypes || [],
     listeningKeywords: merged.listeningKeywords || ['听力', '听写', 'listening', 'dictation'],
-    answerSource: merged.answerSource || 'deepseek-web',
+    answerSource: env.UNIPUS_ANSWER_SOURCE || merged.answerSource || 'openai-api',
     uiTexts: mergeConfig(DEFAULTS.uiTexts, merged.uiTexts || {}),
     network: mergeConfig(DEFAULTS.network, merged.network || {}),
     throttle: mergeConfig(DEFAULTS.throttle, merged.throttle || {}),
@@ -254,8 +270,8 @@ export function validateConfig(config) {
   if (!Array.isArray(course.submitTexts) || !course.submitTexts.length) {
     problems.push('submitTexts 至少需要一个提交按钮文案');
   }
-  if (!['deepseek-web', 'manual'].includes(course.answerSource)) {
-    problems.push('answerSource 只能是 deepseek-web 或 manual');
+  if (!['openai-api', 'deepseek-web', 'manual'].includes(course.answerSource)) {
+    problems.push('answerSource 只能是 openai-api、deepseek-web 或 manual');
   }
   if (!Array.isArray(course.manualTaskTypes)) problems.push('manualTaskTypes 必须是数组（可以为空数组）');
   const endpoint = String(config.browserEndpoint || '');

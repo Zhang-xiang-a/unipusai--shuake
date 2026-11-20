@@ -8,7 +8,8 @@ import {answerQueue, loadAnswerQueue} from './answer.mjs';
 import {formatQueue} from './queue.mjs';
 import {muteCourse} from './mute.mjs';
 import {DeepSeekReplyError, runnerPolicy} from './policy.mjs';
-import {assertCourseLoggedIn, selectCoursePage} from './browser-session.mjs';
+import {assertCourseLoggedIn, selectCoursePage,needsWebSolver} from './browser-session.mjs';
+import {createApiPlanner} from './api-planner.mjs';
 import {currentReplyText,createReplyReader} from './deepseek-reply.mjs';
 import {isChoiceControl,executeChoice} from './choice.mjs';
 import {describeCourse, listCourses, loadConfig, loadRawConfig} from './config.mjs';
@@ -40,6 +41,7 @@ try {
   process.exit(1);
 }
 const policy = runnerPolicy(config, argv);
+const useWebSolver=needsWebSolver(config);
 if (argv.includes('--execute')) config.dryRun = false;
 const stepArg = argv.indexOf('--steps');
 if (stepArg >= 0) {
@@ -102,6 +104,11 @@ let checkpoint;
 try { checkpoint = JSON.parse(await fs.readFile(checkpointFile, 'utf8')); }
 catch (e) { if (e.code !== 'ENOENT') throw e; checkpoint = {step: 0, history: []}; }
 const log = async data => fs.appendFile(path.join(output, 'events.jsonl'), JSON.stringify({time: new Date().toISOString(), ...data}) + '\n');
+let askModel=askDeepSeek;
+if(config.course.answerSource==='openai-api' && !argv.some(arg=>['--setup','--crawl','--inspect'].includes(arg))) {
+  try {askModel=createApiPlanner({config,output,gate,wait:controlledSleep,log});}
+  catch(error){console.error(error.message);process.exit(1);}
+}
 const save = async () => {
   const temp = checkpointFile + '.tmp';
   await fs.writeFile(temp, JSON.stringify(checkpoint, null, 2));
@@ -136,9 +143,9 @@ if (auth && argv.includes('--restore-session')) {
 }
 const solverHost = (() => { try { return new URL(config.deepseekUrl).hostname; } catch { return 'chat.deepseek.com'; } })();
 let course = selectCoursePage(context.pages(), {hosts: config.login?.courseHosts, ssoHost: config.login?.ssoHost});
-let solver = context.pages().find(p => { try { return new URL(p.url()).hostname === solverHost; } catch { return false; } });
-if (!course || !solver) {
-  throw new Error(`专用 Edge 缺少${!course?'课程':''}${!course&&!solver?'和':''}${!solver?'DeepSeek':''}标签。请执行 npm run browser 显示专用窗口并恢复缺失标签，再登录。`);
+let solver = useWebSolver ? context.pages().find(p => { try { return new URL(p.url()).hostname === solverHost; } catch { return false; } }) : null;
+if (!course || (useWebSolver && !solver)) {
+  throw new Error(`专用 Edge 缺少${!course?'课程':''}${!course&&useWebSolver&&!solver?'和':''}${useWebSolver&&!solver?'DeepSeek':''}标签。请执行 npm run browser 显示专用窗口并恢复缺失标签，再登录。`);
 }
 
 // 登录态检测：停在 SSO 页说明会话已过期，直接给出可执行的提示，而不是继续在登录页上操作。
@@ -148,16 +155,16 @@ if (config.muteCourseMedia !== false) await muteCourse(course);
 logger.info(`已连接课程页：${course.url()}`);
 
 if (argv.includes('--setup')) {
-  console.log('请在独立 Edge 窗口登录 U校园和 DeepSeek。程序自动检测并保存，无需在终端按 Enter。');
+  console.log(`请在独立 Edge 窗口登录 U校园${useWebSolver?'和 DeepSeek':''}。程序自动检测并保存，无需在终端按 Enter。`);
   const courseHosts = config.login?.courseHosts || [];
   let lastStatus = '';
   while (true) {
-    if (course.isClosed() || solver.isClosed()) throw new Error('登录标签已关闭，请重新运行 npm run setup');
+    if (course.isClosed() || (useWebSolver && solver.isClosed())) throw new Error('登录标签已关闭，请重新运行 npm run setup');
     const courseReady = (() => { try { return courseHosts.includes(new URL(course.url()).hostname); } catch { return false; } })()
       && await course.locator('main').count() > 0;
-    const solverReady = !/sign_in|login/.test(solver.url()) && await solver.locator(config.deepseekComposer).filter({visible:true}).count() > 0;
+    const solverReady = !useWebSolver || (!/sign_in|login/.test(solver.url()) && await solver.locator(config.deepseekComposer).filter({visible:true}).count() > 0);
     if (courseReady && solverReady) break;
-    const status = `U校园：${courseReady ? '已登录' : '等待登录'}；DeepSeek：${solverReady ? '已登录' : '等待登录'}`;
+    const status = `U校园：${courseReady ? '已登录' : '等待登录'}${useWebSolver?`；DeepSeek：${solverReady ? '已登录' : '等待登录'}`:''}`;
     if (status !== lastStatus) { console.log(status); await log({event:'login-status',courseReady,solverReady}); lastStatus = status; }
     await sleep(3000);
   }
@@ -369,7 +376,8 @@ async function execute(plan, controls=[]) {
 
 try {
   await gate();
-  if(argv.includes('--new-chat')) await startNewChat({strict:true});
+  if(argv.includes('--new-chat') && useWebSolver) await startNewChat({strict:true});
+  else if(argv.includes('--new-chat'))console.log('API 每次请求独立，无聊天历史；忽略 --new-chat');
   await course.waitForLoadState('domcontentloaded');
   // The course overview renders before its asynchronously loaded directory.
   await sleep(5000);
@@ -385,8 +393,8 @@ try {
     process.exit(0);
   }
   if (argv.includes('--answer')) {
-    if (config.course.answerSource === 'manual') throw new Error('该课程 answerSource=manual，配置为手动作答；如需自动答题请改为 deepseek-web');
-    await answerQueue({context,solver,output,gate,wait:controlledSleep,snapshot,ask:askDeepSeek,
+    if (config.course.answerSource === 'manual') throw new Error('该课程 answerSource=manual，配置为手动作答；如需自动答题请改为 openai-api');
+    await answerQueue({context,solver,output,gate,wait:controlledSleep,snapshot,ask:askModel,
       execute:async(plan,state,t,progress)=>{
         const entry=progress.tasks[t.key]??={};
         entry.decisions??={};
@@ -415,8 +423,9 @@ try {
     process.exit(0);
   }
   for (let run = 0; run < config.maxSteps; run++) {
+    if(config.course.answerSource==='manual')throw new Error('该课程配置为手动作答，请指定答案来源后运行');
     await gate();
-    if (course.isClosed() || solver.isClosed()) throw Object.assign(new Error('浏览器标签已关闭'), {fatal: true});
+    if (course.isClosed() || (useWebSolver && solver.isClosed())) throw Object.assign(new Error('浏览器标签已关闭'), {fatal: true});
     assertCourseLoggedIn(course, config.course);
     const modal = course.locator('.ant-modal-wrap:visible');
     if (await modal.count()) {
@@ -426,11 +435,11 @@ try {
     }
     const state = await snapshot();
     const name = String(checkpoint.step).padStart(5,'0');
-    const screenshot = path.join(output,`${name}.png`);
+    const screenshot = argv.includes('--text-only') || !config.uploadScreenshots ? null : path.join(output,`${name}.png`);
     const main = course.locator('main');
-    await (await main.count() ? main : course.locator('body')).screenshot({path:screenshot});
+    if(screenshot)await (await main.count() ? main : course.locator('body')).screenshot({path:screenshot});
     await fs.writeFile(path.join(output,`${name}.json`),JSON.stringify(state,null,2));
-    let plan = await askDeepSeek(state,screenshot);
+    let plan = await askModel(state,screenshot);
     plan = varyChoice(plan,state.controls,config.incorrectChoiceRate);
     await log({event:'plan',step:checkpoint.step,plan});
     console.log(`[${checkpoint.step}] ${plan.task || ''}: ${plan.reason || ''}`);
