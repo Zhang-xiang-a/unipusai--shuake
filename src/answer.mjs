@@ -274,7 +274,7 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
       // 纯文字题型且页面上没有图/媒体时，截图对判断没有帮助，只会让每轮请求变大变慢。
       const textOnlyType=['翻译','单词 / 短语填空','句型改写 / 完成句子','选择题','三项判断（True / False / Not given）','开放问答 / 讨论'].includes(t.type);
       const pageHasVisuals=(state.images||0)>0||(state.media||[]).length>0;
-      if(argv.includes('--text-only')||(textOnlyType&&!pageHasVisuals))screenshot=null;
+      if(argv.includes('--text-only')||listening||(textOnlyType&&!pageHasVisuals))screenshot=null;
       else try {await page.screenshot({path:screenshot,fullPage:false,timeout:8000});}
       catch {screenshot=null;console.log('截图失败，改用完整题干及控件');}
       const translationFields=state.controls.filter(c=>['textarea','input'].includes(c.tag)&&!c.disabled);
