@@ -157,8 +157,16 @@ export function planHasAction(plan) {
 }
 
 // 页面指纹没变，或计划里只有 wait，都算这一轮没有进展；有实际动作且页面变化才清零。
-export function nextStall({stall = 0, unchanged = false, plan} = {}) {
-  return (unchanged || !planHasAction(plan)) ? stall + 1 : 0;
+// 反复执行同一动作同样算停滞：提交按钮点了没反应时，页面会因为 focus/hover 出现细微变化，
+// 只看指纹会一直误判为「有进展」，于是对同一个按钮无限重问模型。
+export function nextStall({stall = 0, unchanged = false, plan, previousActions = null} = {}) {
+  const repeated = !!actionKey(plan) && actionKey(plan) === previousActions;
+  return (unchanged || !planHasAction(plan) || repeated) ? stall + 1 : 0;
+}
+
+/** 计划里动作的稳定指纹，用于识别「连续几轮都在做同一件事」。 */
+export function actionKey(plan) {
+  return (plan?.actions || []).map(a => `${a.type}:${a.id}`).join(',');
 }
 
 // 连续填多个空时不需要按 click 的节奏等待；只有会改变页面状态的 click/drag 才用较长的拟人延迟。

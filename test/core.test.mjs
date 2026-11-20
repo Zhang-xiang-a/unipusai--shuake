@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parsePlan,validatePlan,varyChoice,normalizeFillPlan,isSubmitControl,findSubmitControl,answerableFields,decideStalledRecovery,planHasAction,roundSignature,nextStall,actionDelayRange,isUnusableReply,describePlanFailure} from '../src/core.mjs';
+import {parsePlan,validatePlan,varyChoice,normalizeFillPlan,isSubmitControl,findSubmitControl,answerableFields,decideStalledRecovery,planHasAction,roundSignature,nextStall,actionKey,actionDelayRange,isUnusableReply,describePlanFailure} from '../src/core.mjs';
 test('extract only the reply for the current request despite nested JSON and quoted braces',()=>{
   const p={nonce:'current',actions:[{type:'fill',id:'1',value:'quoted { text }'}]};
   assert.deepEqual(parsePlan('old {"nonce":"old","actions":[]}\n```json\n'+JSON.stringify(p)+'\n```','current'),p);
@@ -151,6 +151,21 @@ test('the real stuck plan reaches the submit fallback instead of looping forever
   assert.deepEqual(decideStalledRecovery({controls:stuckControls}),{action:'submit',id:'13',text:'提 交'});
   // 真正产生了填写动作并改变了页面时，计数清零，不会误判为卡死。
   assert.equal(nextStall({stall,unchanged:false,plan:{actions:[{type:'fill',id:'5',value:'new'}]}}),0);
+});
+
+test('repeating the same click counts as no progress even when the page shifts',()=>{
+  // 提交按钮点了没反应时，focus/hover 会让页面指纹变化，只看 unchanged 会一直误判为有进展。
+  const click={actions:[{type:'click',id:'7'}]};
+  let stall=0;
+  stall=nextStall({stall,unchanged:false,plan:click,previousActions:null});
+  assert.equal(stall,0);
+  stall=nextStall({stall,unchanged:false,plan:click,previousActions:'click:7'});
+  assert.equal(stall,1);
+  stall=nextStall({stall,unchanged:false,plan:click,previousActions:'click:7'});
+  assert.equal(stall,2);
+  // 换成别的动作或填了新内容就不是重复，计数清零。
+  assert.equal(nextStall({stall,unchanged:false,plan:{actions:[{type:'fill',id:'5',value:'x'}]},previousActions:'click:7'}),0);
+  assert.equal(actionKey(click),'click:7');
 });
 
 test('only fill/select use the short delay so multi-blank questions stop costing ~30s',()=>{

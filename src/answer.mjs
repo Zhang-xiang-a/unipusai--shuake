@@ -4,7 +4,7 @@ import {learnTask} from './learning.mjs';
 import {muteCourse} from './mute.mjs';
 import {readAnswerResult} from './result.mjs';
 import {selectQueue, sliceFrom} from './queue.mjs';
-import {decideStalledRecovery, isSubmitControl, roundSignature, nextStall} from './core.mjs';
+import {decideStalledRecovery, isSubmitControl, roundSignature, nextStall, actionKey} from './core.mjs';
 import {canContinueReplyFailure, shouldSkipRecord} from './policy.mjs';
 import {isChoiceControl,choiceSubmitPlan} from './choice.mjs';
 import {isLoginPage} from './browser-session.mjs';
@@ -244,7 +244,7 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
       if(++steps>=maxSteps)return;
       continue;
     }
-    let round=0,stall=0,previousSignature=null,previousChoiceRound=false;
+    let round=0,stall=0,previousSignature=null,previousChoiceRound=false,lastActionKey=null;
     while(steps++<maxSteps) {
       await gate();await dismiss();
       if(await consumeSkip({page,output,t,progress,save,label}))break;
@@ -271,7 +271,10 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
       state.round={number,total,index:round,stalledRounds:stall,unchanged:round>1&&unchanged};
       const listening=isListeningTask(t,state.text,listeningKeywords);
       let screenshot=path.join(output,'answer-current.png');
-      if(argv.includes('--text-only'))screenshot=null;
+      // 纯文字题型且页面上没有图/媒体时，截图对判断没有帮助，只会让每轮请求变大变慢。
+      const textOnlyType=['翻译','单词 / 短语填空','句型改写 / 完成句子','选择题','三项判断（True / False / Not given）'].includes(t.type);
+      const pageHasVisuals=(state.images||0)>0||(state.media||[]).length>0;
+      if(argv.includes('--text-only')||(textOnlyType&&!pageHasVisuals))screenshot=null;
       else try {await page.screenshot({path:screenshot,fullPage:false,timeout:8000});}
       catch {screenshot=null;console.log('截图失败，改用完整题干及控件');}
       const translationFields=state.controls.filter(c=>['textarea','input'].includes(c.tag)&&!c.disabled);
@@ -300,7 +303,9 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
       if(await consumeSkip({page,output,t,progress,save,label}))break;
       const navigation=plan.actions.map(a=>state.controls.find(c=>c.id===a.id)).find(c=>c?.navigation);
       if(navigation&&!isSubmitControl(navigation,submitOptions))throw new Error('答题计划不得自行导航');
-      await fs.writeFile(path.join(output,'answer-plan.json'),JSON.stringify({task:t,plan},null,2));
+      await fs.writeFile(path.join(output,'answer-plan.json'),JSON.stringify({task:t,plan,
+        // 记录被操作控件的原文，卡住时不用再靠截图猜模型点的是什么。
+        targets:plan.actions.map(a=>{const c=state.controls.find(x=>x.id===a.id);return {id:a.id,type:a.type,tag:c?.tag,text:c?.text,className:c?.className,submit:isSubmitControl(c,submitOptions)};})},null,2));
       const stampResult=async()=>{try {await page.screenshot({path:path.join(output,`answer-result-${number-1}.png`),timeout:8000});} catch {console.log('结果截图超时，已保存课程文字证据');}};
       if(dryRun){console.log('答案计划已保存，未填写或提交。');return;}
       if(plan.finished){
@@ -337,7 +342,8 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
       progress.tasks[t.key]={...progress.tasks[t.key],status:'in-progress',updated:new Date().toISOString()};await save();
       if(!plan.actions.length)throw new Error('DeepSeek未提供动作');
       // DeepSeek 可能反复返回 wait 或重复同一份填写，导致对同一题无限重复提问；这里记录并兜底。
-      stall=nextStall({stall,unchanged,plan});
+      stall=nextStall({stall,unchanged,plan,previousActions:lastActionKey});
+      lastActionKey=actionKey(plan);
       await logRound({event:'answer-round',number,total,task:t.key,round,stall,unchanged,actions:plan.actions.map(a=>a.type)});
       if(stall>=maxStallRounds) {
         const choiceCount=await page.locator('.question-common-abs-choice').count();

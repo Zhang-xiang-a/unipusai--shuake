@@ -256,7 +256,11 @@ async function snapshot(page = course) {
         options:e.tagName === 'SELECT' ? Array.from(e.options).map(o=>({text:o.text,value:o.value})) : undefined};
     });
     const media = Array.from(document.querySelectorAll('video,audio')).map(m=>({time:m.currentTime,duration:Number.isFinite(m.duration)?m.duration:null,paused:m.paused,ended:m.ended}));
-    return {url:location.href, text:document.body.innerText.slice(0,45000), controls, media};
+    // 页面上的可见图形数量：纯文字题不需要截图，有图/表/媒体才值得让模型看图。
+    const images = Array.from(document.querySelectorAll('main img,main canvas,main svg,main picture')).filter(e=>{
+      const r=e.getBoundingClientRect();return r.width>40&&r.height>40;
+    }).length;
+    return {url:location.href, text:document.body.innerText.slice(0,45000), controls, media, images};
   }, entryPattern);
 }
 
