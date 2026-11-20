@@ -19,6 +19,7 @@
 | `npm run skip` | 请求跳过当前子任务。若页面有评论输入框会填入 `6666`，不自动发布评论。 |
 | `npm run verify -- --unit 3 --tasks 33,35,39` | runner 结束后核对课程侧保存的任务完成标记。不答题、不提交。 |
 | `npm run audit -- 3 --skip-banked-cloze` | 核验第三单元的提交证据、学习执行情况与得分。 |
+| `npm run reset -- --course course3` | 预览要归档的进度文件；加 `--yes` 才归档并清空。换账号、换课程、想从头重刷时用。默认保留 `inventory/` 任务清单，加 `--all` 连清单一起归档。 |
 | `npm test` | 运行项目测试，不接触课程页面。 |
 | `npm run check` | 对全部源文件做 `node --check` 语法检查。 |
 | `npm run video` | 单独监控当前课件视频的播放进度（排查用）。 |
