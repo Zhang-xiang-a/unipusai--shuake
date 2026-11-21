@@ -265,7 +265,7 @@ npm run stop
 | 命令 | 干什么 |
 |---|---|
 | `npm run crawl` | 采集课程目录、题干、控件，生成任务清单。**换书后必做** |
-| `npm run inventory` | 统计题型分布，生成报告 |
+| `npm run inventory` | 单独重算题型分布（`npm run crawl` 已自动做，目录没变就不用跑） |
 | `npm run list` | 列出任务队列（序号 / 路径 / 题型 / 状态），不连浏览器 |
 | `npm start -- --list` | 同上，走 `npm start` 的筛选参数 |
 
@@ -368,7 +368,6 @@ npm run courses
 
 ```powershell
 npm run crawl
-npm run inventory
 ```
 
 6. 开始跑：

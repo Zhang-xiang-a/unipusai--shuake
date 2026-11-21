@@ -186,4 +186,14 @@ export async function crawlRequired({context, overview, solver, config, output, 
   await fs.writeFile(path.join(dir,'missing.json'),JSON.stringify(missing,null,2));
   console.log(`必修遍历 ${inventory.length}/${manifest.filter(t=>t.required).length}；缺失 ${missing.length}`);
   if(missing.length)throw new Error('仍有必修任务未定位，详见 inventory/missing.json');
+  // 题型报告一起生成：npm run list / --answer 都要读 type-report.json，
+  // 以前得单独跑 npm run inventory，忘了就报「还没有任务清单」。
+  const {buildTypeReport} = await import('./inventory-report.mjs');
+  const report = await buildTypeReport({rules: config.typeRules, dir});
+  await fs.writeFile(path.join(dir,'type-report.json'), JSON.stringify(report, null, 2));
+  const groups = Object.entries(report.groups)
+    .sort((a,b)=>b[1].length-a[1].length)
+    .map(([k,v])=>`${k} ${v.length}`).join('，');
+  console.log(`题型报告：${groups}`);
+  console.log('采集完成，接下来可以跑 npm run list 或 npm run fix-missing。');
 }
