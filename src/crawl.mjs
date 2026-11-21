@@ -13,6 +13,17 @@ export async function crawlRequired({context, overview, solver, config, output, 
     retries: config.network?.retries ?? 2,
     retryDelayMs: config.network?.retryDelayMs ?? 1500,
   });
+  // uai 和 ucontent 是两个域，登录态不通用。只登了课件页时这里会被踢到登录页，
+  // 后面找单元页签自然找不着，所以要先把"没登录"和"页面没渲染好"分开。
+  const landed = (() => { try { return new URL(overview.url()); } catch { return null; } })();
+  if (landed && !/^(?:[^.]*\.)?uai\.unipus\.cn$/.test(landed.hostname)) {
+    throw new Error([
+      `课程目录页没打开，被带到了：${overview.url().slice(0, 120)}`,
+      '这通常说明 uai.unipus.cn 这个域还没登录。',
+      'uai（课程目录）和 ucontent（课件）是两个独立域，登录态不通用。',
+      `做法：在专用 Edge 窗口里打开 ${config.courseUrl}，登录一次，看到单元列表后重跑 npm run crawl。`,
+    ].join('\n'));
+  }
   await wait(3500);
   const unitTabs = overview.locator('[class*="unipus-tabs_unitTabItemContainer"]');
   // 目录页是异步渲染的，机器慢或第一次进课（要拉课程数据）都可能超过 3.5 秒。

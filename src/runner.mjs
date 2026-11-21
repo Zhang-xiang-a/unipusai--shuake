@@ -283,6 +283,8 @@ logger.info(`已连接课程页：${course.url()}`);
 
 if (argv.includes('--setup')) {
   console.log(`请在独立 Edge 窗口登录 U校园${useWebSolver?'和 DeepSeek':''}。程序自动检测并保存，无需在终端按 Enter。`);
+  console.log('注意：课程目录（uai.unipus.cn）和课件（ucontent.unipus.cn）是两个域，登录态不通用。');
+  console.log(`      两个都要登一次。目录页地址：${config.courseUrl}`);
   const courseHosts = config.login?.courseHosts || [];
   let lastStatus = '';
   while (true) {
@@ -308,6 +310,13 @@ if (argv.includes('--setup')) {
   await fs.writeFile(authFile,JSON.stringify(storage));
   console.log('登录已校验并保存，直接进入运行验证，保持当前浏览器会话。');
   logger.info('登录状态已校验并保存到 browser-profile/runner-session.json（本地文件，勿分享）');
+  // --setup 只负责校验并保存登录态，保存完就该退出。
+  // 早先漏了这一步，命令会继续掉进下面的通用导航循环，
+  // 而那时 answerSource=openai-api 意味着 solver 是 null，一碰 solver.url() 就崩。
+  if (!argv.includes('--verify-after-setup')) {
+    process.exitCode = 0;
+    process.exit(0);
+  }
 }
 
 async function snapshot(page = course) {
