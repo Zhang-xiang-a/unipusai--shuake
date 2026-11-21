@@ -164,6 +164,85 @@ function maskKey(key) {
   return key.slice(0, 6) + '…' + key.slice(-4);
 }
 
+/**
+ * 试一次模型接口，把「key 错 / base_url 错 / 模型名错」在进刷课前就查出来。
+ * 先走 GET /models（不花 token）；中转站没实现这个接口，再退到一次极小的对话请求。
+ */
+export async function testModel(env) {
+  const baseUrl = String(env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const key = env.OPENAI_API_KEY;
+  const model = env.OPENAI_MODEL;
+  const headers = {Authorization: `Bearer ${key}`, 'Content-Type': 'application/json'};
+
+  const fail = reason => ({ok: false, reason});
+
+  // ── 1. GET /models（不花 token）──
+  try {
+    const res = await fetch(`${baseUrl}/models`, {
+      headers: {Authorization: `Bearer ${key}`},
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.status === 401 || res.status === 403) {
+      return fail(`密钥被拒绝（HTTP ${res.status}）。检查 API Key 是否复制完整、有没有过期。`);
+    }
+    if (res.ok) {
+      let ids = [];
+      try {
+        const data = await res.json();
+        ids = (data.data || data.models || []).map(m => m.id || m.name).filter(Boolean);
+      } catch {}
+      if (ids.length && !ids.includes(model)) {
+        // 中转站经常给模型改名，这里只提醒不阻断
+        return {ok: true, warning: `接口通，但模型列表里没有「${model}」。可用示例：${ids.slice(0, 6).join(', ')}`};
+      }
+      return {ok: true, models: ids.length};
+    }
+    // 404 说明没实现 /models，往下走对话测试；其余状态也先试对话
+  } catch (error) {
+    if (error.name === 'TimeoutError') return fail('连接接口超时。检查网络，或 base_url 是否写错。');
+    // 网络层失败：可能是域名错，也可能只是不支持 /models，交给下面的对话测试判断
+  }
+
+  // ── 2. 极小对话请求 ──
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [{role: 'user', content: 'hi'}],
+        max_tokens: 1,
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+    if (res.ok) return {ok: true};
+
+    const text = await res.text().catch(() => '');
+    let detail = text.slice(0, 200);
+    try {
+      const json = JSON.parse(text);
+      detail = json.error?.message || json.message || detail;
+    } catch {}
+
+    if (res.status === 401 || res.status === 403) {
+      return fail(`密钥被拒绝（HTTP ${res.status}）：${detail}`);
+    }
+    if (res.status === 404) {
+      return fail(`找不到接口（HTTP 404）。base_url 大概写错了，正确形式类似 https://xxx.com/v1`);
+    }
+    if (res.status === 400 || res.status === 422) {
+      return fail(`请求被拒（HTTP ${res.status}）：${detail}\n这通常是模型名不对，或者这个模型不支持对话接口。`);
+    }
+    if (res.status === 429) {
+      return {ok: true, warning: '接口返回限流（429），说明 key 和地址是对的，但额度可能快用完了。'};
+    }
+    return fail(`接口返回 HTTP ${res.status}：${detail}`);
+  } catch (error) {
+    if (error.name === 'TimeoutError') return fail('对话请求超时。网络问题，或 base_url 指向的地址不响应。');
+    return fail(`连不上 ${baseUrl}：${error.message}\n检查 base_url 是否写对（要带 /v1 这类路径），以及网络。`);
+  }
+}
+
 // ───────────────────────── 第 1 步：环境 ─────────────────────────
 
 async function stepEnv() {
@@ -303,10 +382,23 @@ async function stepModel() {
     if (existing.OPENAI_BASE_URL) info(dim(`接口 ${existing.OPENAI_BASE_URL}`));
     gap();
     if (await askYesNo('继续用这套配置？', true)) {
-      ok('沿用现有配置');
-      return existing;
+      // 沿用的也测一次：key 可能过期了，早点发现比刷到一半炸好
+      info('正在试一下这个配置能不能用……');
+      const probe = await testModel(existing);
+      if (probe.ok) {
+        if (probe.warning) warn(probe.warning);
+        else ok('配置可用');
+        return existing;
+      }
+      gap();
+      bad('这套配置用不了：');
+      for (const line of probe.reason.split('\n')) info('  ' + line);
+      gap();
+      info('重新填一次吧。');
+      gap();
+    } else {
+      gap();
     }
-    gap();
   }
 
   const key = await askUntil('API Key（粘贴后回车）：', v => {
@@ -341,6 +433,25 @@ async function stepModel() {
   gap();
   ok('已写入 .env（这个文件含密钥，别发给别人）');
   info(dim(`Key ${maskKey(key)}   模型 ${model}${baseUrl ? '   接口 ' + baseUrl : ''}`));
+
+  // 填完先试一次，别等刷到一半才发现 key 不能用
+  gap();
+  info('正在试一下这个配置能不能用……');
+  const probe = await testModel({OPENAI_API_KEY: key, OPENAI_MODEL: model, OPENAI_BASE_URL: baseUrl});
+  if (probe.ok) {
+    if (probe.warning) warn(probe.warning);
+    else ok('配置可用，模型能正常回应');
+  } else {
+    gap();
+    bad('这个配置用不了：');
+    for (const line of probe.reason.split('\n')) info('  ' + line);
+    gap();
+    if (await askYesNo('要重新填一次吗？（选否=先这样，稍后再说）', true)) {
+      return stepModel();
+    }
+    warn('先记着这个问题，刷课时大概率会失败。');
+  }
+
   return {OPENAI_API_KEY: key, OPENAI_MODEL: model, OPENAI_BASE_URL: baseUrl};
 }
 
@@ -364,15 +475,24 @@ async function stepLogin(config) {
   const {chromium} = await import('playwright');
   const endpoint = config.browserEndpoint || 'http://127.0.0.1:9228';
 
+  // Edge 刚起来时调试端口可能还没监听，重试几次再判定失败。
   let browser;
-  try {
-    browser = await chromium.connectOverCDP(endpoint);
-  } catch {
-    throw new Error('连不上专用浏览器。可能是 Edge 没起来，重新双击 一键刷课.bat 再试。');
+  let lastError;
+  for (let i = 0; i < 6; i++) {
+    try {
+      browser = await chromium.connectOverCDP(endpoint);
+      break;
+    } catch (error) {
+      lastError = error;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  if (!browser) {
+    throw new Error(`连不上专用浏览器（${endpoint}）：${lastError?.message || '未知错误'}\n` +
+      '再双击一次 一键刷课.bat 通常就好了。');
   }
 
   const context = browser.contexts()[0];
-  const pages = context.pages();
 
   gap();
   info('正在等你登录……（每 3 秒检查一次，最多等 10 分钟）');
@@ -383,7 +503,8 @@ async function stepLogin(config) {
   let who = '';
 
   while (Date.now() - started < timeoutMs) {
-    for (const page of pages) {
+    // 每轮重新取页面列表：用户可能在等待期间新开了标签页，只用启动时的快照会漏掉。
+    for (const page of context.pages()) {
       try {
         const state = await page.evaluate(() => {
           const token = localStorage.getItem('__token');
@@ -538,14 +659,25 @@ async function stepRun(course, config) {
   if (save.mode === 'adopt') ok('沿用已有进度');
   if (save.mode === 'fresh') ok('这本书是第一次刷，从 Unit 1 开始');
 
-  // 自检三步：setup 对齐课程，crawl 采集清单，audit 看缺口
+  // 自检三步：setup 存登录态，crawl 采集清单，audit 看缺口
   gap();
-  info(bold('开始自检（第一次会久一点，要采集整本书的题目）'));
-  await runNode('runner.mjs', ['--setup'], {allowFail: true, label: '课程对齐'});
+  info(bold('开始自检'));
+  info(dim('第一步：把登录态存下来，这样下次不用重新登'));
+  const setupStatus = await runNode('runner.mjs', ['--setup'], {allowFail: true, label: '登录态保存'});
+  if (setupStatus !== 0) {
+    gap();
+    bad('登录态没保存成功。');
+    info('常见原因：只登了「我的教程」那一页，没进课程页。');
+    info('回到那个 Edge 窗口，把这本书点开、看到单元列表，然后重新双击 一键刷课.bat。');
+    throw new Error('登录态保存失败，先不往下跑');
+  }
+  ok('登录态已保存');
 
   gap();
   const startedAt = Date.now();
 
+  info(bold('第二步：采集这本书的题目清单'));
+  info(dim('第一次要几分钟，之后会快很多'));
   const crawlStatus = await runNode('runner.mjs', ['--crawl'], {allowFail: true, label: '采集任务清单'});
   if (crawlStatus !== 0) {
     gap();
