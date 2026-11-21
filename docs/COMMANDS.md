@@ -31,6 +31,7 @@
 | `--answer` | 按必修任务队列运行答题流程。 |
 | `--execute` | 实际填写、点击和提交；不加则只预览。 |
 | `--unit 3` | 只处理指定单元，上限由当前课程的 `unitCount` 决定。 |
+| `--from-unit 3` | 从第 3 个单元一路处理到最后一个单元，不用逐个 `--unit` 切换。与 `--unit` 互斥（数字相同则等价）。 |
 | `--type 翻译` | 只处理指定题型，名称需与 `npm run inventory` 报告一致。 |
 | `--skip-banked-cloze` | 排除选词完形（Banked cloze）。 |
 | `--retry-skipped` | 重新尝试本次筛选范围内记录为 `skipped` 的任务；已提交和已学习的任务仍保留。 |

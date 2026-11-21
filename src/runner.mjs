@@ -23,7 +23,7 @@ const argv = process.argv;
 // 看起来像「跑起来了但什么都没做」。这里直接拦下并给出近似建议。
 const KNOWN_FLAGS = new Set([
   '--all','--answer','--course','--courses','--crawl','--current','--depth','--dry-run','--execute',
-  '--from','--from-task','--inspect','--list','--new-chat','--retry-skipped','--setup',
+  '--from','--from-task','--from-unit','--inspect','--list','--new-chat','--retry-skipped','--setup',
   '--skip-banked-cloze','--steps','--tasks','--text-only','--type','--unit','--yes','--help',
 ]);
 function suggestFlag(flag) {
@@ -92,8 +92,10 @@ const output = courseOutputDir(config.course.key);
 // 课件页域名（ucontent）与目录页域名（uai）都来自配置，页面切换时用它判断是否打开了新标签。
 const coursewareHost = (config.login?.courseHosts || []).find(host => /ucontent/i.test(host)) || 'ucontent.unipus.cn';
 // 队列筛选参数只在答题模式生效，漏加 --answer 时明确提示，避免在目录页空转。
-if (!argv.includes('--answer') && argv.some(arg => ['--unit','--type','--skip-banked-cloze','--from','--current','--retry-skipped'].includes(arg))) {
-  console.log('提示：--unit / --type / --skip-banked-cloze / --from / --current / --retry-skipped 只在 --answer 模式下生效。');
+// --list / --inspect / --crawl 等一次性命令本身就会读队列，不需要这条提醒。
+const oneShotCommand = ['--list','--inspect','--crawl','--courses','--setup'].some(flag => argv.includes(flag));
+if (!oneShotCommand && !argv.includes('--answer') && argv.some(arg => ['--unit','--from-unit','--type','--skip-banked-cloze','--from','--current','--retry-skipped'].includes(arg))) {
+  console.log('提示：--unit / --from-unit / --type / --skip-banked-cloze / --from / --current / --retry-skipped 只在 --answer 模式下生效。');
   console.log('      当前是通用导航模式，不会读任务队列；要按队列答题请加 --answer。');
 }
 logger.info(`启动：${describeCourse(config.course)}，dryRun=${config.dryRun}，输出目录 ${output}`);
@@ -102,7 +104,12 @@ if (argv.includes('--list')) {
   // 只读队列，不连接浏览器、不占用 runner.lock。
   let queue;
   try { ({queue} = await loadAnswerQueue({output, argv})); }
-  catch (error) { if (error.code === 'ENOENT') throw new Error('缺少 artifacts/inventory 采集结果，请先运行 npm run crawl'); throw error; }
+  catch (error) {
+    if (error.code === 'ENOENT') throw new Error('缺少 artifacts/inventory 采集结果，请先运行 npm run crawl');
+    // 参数组合错误（--unit 与 --from-unit 冲突、越界）只需要一句提示，不必甩堆栈。
+    if (/^--(unit|from-unit|type|from)/.test(String(error.message))) { console.error(error.message); process.exit(1); }
+    throw error;
+  }
   let progress = {tasks:{}};
   try { progress = JSON.parse(await fs.readFile(path.join(output,'answer-progress.json'),'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   console.log(`当前课程：${config.course.label}（${config.course.key}）`);

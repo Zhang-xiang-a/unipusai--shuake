@@ -203,6 +203,14 @@ npm start -- --unit 1 --skip-banked-cloze      # 预览：只生成计划，不�
 npm start -- --answer --execute --unit 1 --skip-banked-cloze --text-only --steps 100
 ```
 
+想从某个单元一路刷到最后一个单元，用 `--from-unit` 代替 `--unit`：
+
+```powershell
+npm start -- --answer --execute --from-unit 3 --skip-banked-cloze
+```
+
+已完成的任务会自动跳过，所以中途停下重跑同一条命令就能接着来。
+
 - `--answer`：走答题队列
 - `--execute`：真正填写和提交（去掉就是预览）
 - `--text-only`：不上传截图，只发文本和控件（更快；首次建议先带截图跑一遍确认）

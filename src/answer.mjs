@@ -71,6 +71,15 @@ export async function loadAnswerQueue({output, argv = process.argv, unitCount = 
     if(!Number.isInteger(unit)||unit<1||unit>unitCount)throw new Error(`--unit 必须为 1~${unitCount}（当前课程配置了 ${unitCount} 个单元）`);
     queue=queue.filter(t=>t.unit===unit);
   }
+  // --from-unit N：从第 N 个单元一路刷到最后一个单元，不用逐个 --unit 切换。
+  const fromUnitIndex=argv.indexOf('--from-unit');
+  if(fromUnitIndex>=0) {
+    const fromUnit=Number(argv[fromUnitIndex+1]);
+    if(!Number.isInteger(fromUnit)||fromUnit<1||fromUnit>unitCount)throw new Error(`--from-unit 必须为 1~${unitCount}（当前课程配置了 ${unitCount} 个单元）`);
+    if(unitIndex>=0&&unit!==fromUnit)throw new Error(`--unit ${unit} 与 --from-unit ${fromUnit} 冲突：只想刷一个单元就只用 --unit，想刷到结尾就只用 --from-unit`);
+    queue=queue.filter(t=>t.unit>=fromUnit);
+    if(unit===null)unit=fromUnit;
+  }
   return {queue,unit,inventory};
 }
 
