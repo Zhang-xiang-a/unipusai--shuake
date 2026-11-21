@@ -20,7 +20,29 @@ export function isCourseUrl(value, {includeLogin = true, hosts = DEFAULT_COURSE_
 }
 
 export function isLoginPage(page, {ssoHost = DEFAULT_SSO_HOST} = {}) {
-  try { return new URL(page.url()).hostname === ssoHost; } catch { return false; }
+  try {
+    const url = new URL(page.url());
+    if (url.hostname === ssoHost) return true;
+    // 被踢回未登录状态时门户会带 logout=true：页面还在课程域，但已经没有登录态。
+    if (url.searchParams.get('logout') === 'true') return true;
+    return false;
+  } catch { return false; }
+}
+
+/**
+ * 页面是否已经处于未登录状态。除了 URL，还要看页面上有没有登录入口而没有课程目录——
+ * 有些情况门户会留在课程域、静默清掉登录态。
+ */
+export async function detectLoginLost(page, {ssoHost = DEFAULT_SSO_HOST} = {}) {
+  if (isLoginPage(page, {ssoHost})) return '标签页停在登录页或门户带着 logout=true';
+  try {
+    const state = await page.evaluate(() => ({
+      loginEntry: !!document.querySelector('a[href*="sso.unipus.cn"], a[href*="login"], .login-btn, [class*="login-entry"]'),
+      courseMenu: !!document.querySelector('.pc-menu-node-name, .pc-task, .pc-tab-view-container'),
+    }));
+    if (state.loginEntry && !state.courseMenu) return '页面上只有登录入口，没有课程目录，登录态已失效';
+  } catch { /* 页面正在跳转时拿不到结构，按已登录处理 */ }
+  return null;
 }
 
 /**

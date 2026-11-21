@@ -7,7 +7,7 @@ import {selectQueue, sliceFrom} from './queue.mjs';
 import {decideStalledRecovery, isSubmitControl, roundSignature, nextStall, actionKey} from './core.mjs';
 import {canContinueReplyFailure, shouldSkipRecord} from './policy.mjs';
 import {isChoiceControl,choiceSubmitPlan} from './choice.mjs';
-import {isLoginPage} from './browser-session.mjs';
+import {detectLoginLost} from './browser-session.mjs';
 import {inspectComment, postComment} from './comment.mjs';
 
 // 听力关键词来自课程配置（course.listeningKeywords）；不传时用内置默认，保持旧行为。
@@ -205,8 +205,9 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
       return !(await page.locator('.ant-modal-wrap:visible').count());
     };
     await dismiss();
-    // 登录过期时页面会被踢到 SSO，后面所有点击都会超时，这里提前给出可读原因。
-    if(isLoginPage(page,{ssoHost:course.login?.ssoHost}))throw new Error('课程标签已跳到登录页，登录态失效：请在专用 Edge 里重新登录后重跑');
+    // 登录过期时页面会被踢到 SSO 或门户带 logout=true，后面所有点击都会超时，这里提前给出可读原因。
+    const lostAt=await detectLoginLost(page,{ssoHost:course.login?.ssoHost});
+    if(lostAt)throw new Error(`登录态已失效（${lostAt}）：请在专用 Edge 里重新登录后重跑`);
     // 导航按钮被弹窗遮挡是这类课程页最常见的中断原因：
     // 三层兜底——先清弹窗，仍被挡就再清一次重试，最后强制点击并把弹窗原文打出来。
     const clickGuarded=async(target,{label:what='控件',timeout=8000}={})=>{
@@ -222,7 +223,7 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
         await dismiss(); await wait(600);
         try { await target.click({timeout}); return; }
         catch {
-          if(isLoginPage(page,{ssoHost:course.login?.ssoHost}))throw new Error('登录态已失效（页面被跳到登录页）：请在专用 Edge 里重新登录后重跑');
+          if(await detectLoginLost(page,{ssoHost:course.login?.ssoHost}))throw new Error('登录态已失效（页面被跳到登录页或门户 logout=true）：请在专用 Edge 里重新登录后重跑');
           await target.click({timeout:Math.min(timeout,5000),force:true});
           console.log(`${tag} ${what}被弹窗遮挡，已强制点击${modalText?`（弹窗内容：${modalText}）`:''}`);
         }

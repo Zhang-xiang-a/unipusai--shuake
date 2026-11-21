@@ -7,7 +7,7 @@ import {crawlRequired} from './crawl.mjs';
 import {answerQueue, loadAnswerQueue} from './answer.mjs';
 import {auditQueue, formatAudit} from './audit.mjs';
 import {readCourseLeafs} from './course-progress.mjs';
-import {isLoginPage} from './browser-session.mjs';
+import {detectLoginLost} from './browser-session.mjs';
 import {formatQueue} from './queue.mjs';
 import {muteCourse} from './mute.mjs';
 import {DeepSeekReplyError, runnerPolicy} from './policy.mjs';
@@ -142,6 +142,7 @@ if (argv.includes('--audit')) {
     }
     // 以课程侧数据为准：本地记成 learning/failed 的任务，课程页显示已通过就不再重做。
     let courseLeafs = null;
+    let loginLost = null;
     if (!argv.includes('--local-only')) {
       try {
         const busy = runnerBusy(output);
@@ -151,9 +152,9 @@ if (argv.includes('--audit')) {
         const host = config.login?.courseHosts?.find(h => /ucontent/i.test(h)) || 'ucontent.unipus.cn';
         const page = browser.contexts()[0]?.pages().find(p => { try { return new URL(p.url()).hostname === host; } catch { return false; } });
         if (!page) throw new Error('没有打开的课程课件标签，已跳过课程侧核对（先在 Edge 里打开课程页面）');
-        // 登录过期时页面停在 SSO，reload 不会发出任何 course_progress 请求，必须说清原因。
-        if (isLoginPage(page, {ssoHost: config.course?.login?.ssoHost || 'sso.unipus.cn'}))
-          throw new Error('登录态已失效（页面停在 SSO 登录页）：请在专用 Edge 里重新登录后再体检');
+        // 登录过期时页面停在 SSO 或门户带 logout=true，reload 不会发出任何 course_progress 请求。
+        const lost = await detectLoginLost(page, {ssoHost: config.course?.login?.ssoHost || 'sso.unipus.cn'});
+        if (lost) { loginLost = lost; throw new Error(`登录态已失效（${lost}）：请在专用 Edge 里重新登录后再体检`); }
         const {leafs, failed} = await readCourseLeafs({page, tasks: scopeQueue});
         courseLeafs = leafs;
         if (failed.length) console.log(`课程侧核对：${failed.length} 个单元读取失败（${failed.slice(0, 3).map(f => `${f.unitId}: ${f.reason}`).join('；')}），这些任务按本地进度判断`);
@@ -171,6 +172,14 @@ if (argv.includes('--audit')) {
       pending: report.pending.map(t => ({key: t.key, unit: t.unit, path: t.path, type: t.type || '',
         status: progress.tasks?.[t.key]?.status || '', reason: progress.tasks?.[t.key]?.reason || ''})),
     }, null, 2));
+    if (loginLost) {
+      console.log('');
+      console.log(`注意：${loginLost}。上面的结果只按本地进度判断，课程页上已完成的任务可能被算成未完成。`);
+      if (argv.includes('--fix')) {
+        console.log('已在补做前停下。请在专用 Edge 里重新登录，再运行 npm run fix-missing。');
+        process.exit(2);
+      }
+    }
     if (!argv.includes('--fix')) process.exit(report.pending.length ? 1 : 0);
     if (!report.pending.length) process.exit(0);
     console.log('\n开始补做未完成的任务…');
