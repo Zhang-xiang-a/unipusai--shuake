@@ -446,11 +446,21 @@ npm start -- --answer --execute --course course2
 
 专用 Edge 的窗口被关掉后，进程还会在后台驻留。这时 CDP 照样能操作标签，命令也照常报"已显示并复用"，但屏幕上什么都没有。
 
-加一个参数强制开新窗口：
+**这种情况现在会自动处理**。`npm run browser` 会检测有没有真正显示在屏幕上的窗口，没有就自己重开一个，并打印：
+
+```
+检测到专用 Edge 的窗口被关掉了（进程还在后台），正在重新打开窗口…
+窗口已重新打开，请看任务栏上标题为「U校园」的那个 Edge。
+```
+
+如果还是出不来，用这两个参数：
 
 ```powershell
-npm run browser -- --new-window
+npm run browser -- --restart      # 清掉上次残留的进程再全新启动
+npm run browser -- --new-window   # 强制开一个新窗口
 ```
+
+`--restart` 只杀带 `--remote-debugging-port=9228` 的 Edge，不会碰你平常用的 Edge。
 
 ### 提示"登录态已失效"
 
