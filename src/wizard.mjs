@@ -21,6 +21,7 @@ import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {ROOT_DIR, CONFIG_FILE, CONFIG_EXAMPLE_FILE, ARTIFACTS_DIR, SESSION_FILE} from './paths.mjs';
 import {parseCourses, resolveChoice} from './switch-course.mjs';
+import {readScan} from './prescan.mjs';
 
 const COURSES_FILE = path.join(ROOT_DIR, 'courses.txt');
 const ENV_FILE = path.join(ROOT_DIR, '.env');
@@ -106,18 +107,22 @@ function hardKill(child) {
   } catch { /* 进程可能已经自己退了 */ }
 }
 
+function stopNow() {
+  // taskkill 是同步的，杀完再退；不留 setTimeout，否则用户会觉得「按了没反应」。
+  hardKill(activeChild);
+  process.stdout.write('\n  已停止。进度都存着，下次双击就能接着刷。\n');
+  process.exit(130);
+}
+
 process.on('SIGINT', () => {
-  if (interrupted) {
-    // 连按两次就立刻走，不再等。
-    hardKill(activeChild);
-    process.exit(130);
-  }
+  if (interrupted) return stopNow();   // 连按两次立刻走
   interrupted = true;
   process.stdout.write('\n\n  收到 Ctrl+C，正在停止……\n');
-  hardKill(activeChild);
-  // 给子进程一点收尾时间（它自己也会保存进度），然后退出。
-  setTimeout(() => process.exit(130), 2000);
+  stopNow();
 });
+
+// Windows 上 Ctrl+Break 走的是 SIGBREAK，顺手也接住。
+process.on('SIGBREAK', () => { interrupted = true; stopNow(); });
 
 /** 异步跑一个子进程，返回退出码。Ctrl+C 时会被 SIGINT 处理器打断。 */
 function runChild(command, args, options = {}) {
@@ -135,6 +140,10 @@ function runChild(command, args, options = {}) {
     const settle = (code, error) => {
       activeChild = null;
       rl?.resume();
+      // Ctrl+C 会同时发给父进程和子进程。子进程自己退了会触发这里，
+      // 如果不检查 interrupted，就会被当成「子进程正常结束」，
+      // 父进程接着做下一步——表现就是「按了 Ctrl+C 它还在跑」。
+      if (interrupted) process.exit(130);
       if (error) reject(error);
       else resolve(code);
     };
@@ -702,6 +711,49 @@ export function formatDuration(seconds) {
   return `${sec} 秒`;
 }
 
+/** 相对时间，给「多久前扫的」用。 */
+function humanAge(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.round(ms / 60000);
+  if (min < 1) return '刚刚';
+  if (min < 60) return `${min} 分钟前`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} 小时前`;
+  return `${Math.round(h / 24)} 天前`;
+}
+
+/**
+ * 采集任务清单，但先看有没有存过的结果。
+ * 同一本书的清单不会天天变，每次重爬几分钟纯属浪费。
+ */
+async function crawlWithCache(courseKey, label) {
+  const scan = readScan(courseKey);
+
+  if (scan) {
+    gap();
+    info(`这本书之前扫过了：${bold(humanAge(scan.scannedAt))}，${scan.taskCount ?? '?'} 个任务`);
+    info(dim('清单不会天天变，直接用能省几分钟。'));
+    gap();
+    if (await askYesNo('直接读这份结果？', true)) {
+      ok('用已存的结果，跳过采集');
+      return true;
+    }
+    gap();
+    info(dim('重新扫一遍，大概几分钟。'));
+  } else {
+    gap();
+    info(bold(`第一次刷 ${label}，要先采集题目清单`));
+    info(dim('几分钟，之后就不用再等了。'));
+  }
+
+  const status = await runNode('runner.mjs', ['--crawl', '--course', courseKey, '--quiet'],
+    {allowFail: true, label: '采集'});
+
+  if (status !== 0) return false;
+  ok('采集完成');
+  return true;
+}
+
 async function stepRun(course, config) {
   banner(4, 5, '登录 → 自检 → 开始刷课');
 
@@ -730,16 +782,14 @@ async function stepRun(course, config) {
   gap();
   const startedAt = Date.now();
 
-  info(bold('第二步：采集这本书的题目清单'));
-  info(dim('第一次要几分钟，之后会快很多'));
-  const crawlStatus = await runNode('runner.mjs', ['--crawl'], {allowFail: true, label: '采集任务清单'});
-  if (crawlStatus !== 0) {
+  info(bold('第二步：拿到这本书的题目清单'));
+  const crawled = await crawlWithCache(course.courseKey, course.courseLabel);
+  if (!crawled) {
     gap();
     bad('采集没成功。最常见的原因是：浏览器里登录掉了，或者课程 ID 不对。');
     info('先确认专用 Edge 里能看到这本书的单元列表，然后重新双击 一键刷课.bat。');
     throw new Error('采集失败，无法继续刷课');
   }
-  ok('采集完成');
 
   gap();
   info(bold('开始刷课。可以最小化窗口去做别的事，不要关掉。'));
@@ -919,9 +969,8 @@ async function stepWatchOnly(course, config) {
   const startedAt = Date.now();
 
   gap();
-  info(bold('采集这本书的题目清单'));
-  const crawlStatus = await runNode('runner.mjs', ['--crawl', '--quiet'], {allowFail: true, label: '采集'});
-  if (crawlStatus !== 0) {
+  const crawled = await crawlWithCache(course.courseKey, course.courseLabel);
+  if (!crawled) {
     throw new Error('采集没成功。确认专用 Edge 里能看到这本书的单元列表，再重试。');
   }
 

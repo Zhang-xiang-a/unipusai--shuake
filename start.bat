@@ -67,6 +67,12 @@ if not exist "src\wizard.mjs" (
 set "CODE=%ERRORLEVEL%"
 
 echo.
+if "%CODE%"=="130" (
+    echo  Stopped by Ctrl+C. Progress is saved - run this file again to resume.
+    echo.
+    pause
+    exit /b 130
+)
 if not "%CODE%"=="0" (
     echo  Exited with code %CODE%.
     echo  Progress is saved - just run this file again to resume.
