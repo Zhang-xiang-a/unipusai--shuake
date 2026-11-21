@@ -351,8 +351,16 @@ async function stepCourse() {
     }
   }
 
+  // three things must be written, or the run quietly does the wrong thing:
+  //   courseId           —— config.example.json ships "<COURSE_ID_1>" placeholders,
+  //                         leaving them in breaks every URL that uses {courseId}
+  //   courseResourceId   —— what resource-detail/ actually needs
+  //   dryRun = false     —— the template ships true; leaving it true means the whole
+  //                         run answers/uploads/comments nothing and reports success
   config.activeCourse = picked.key;
+  config.courses[picked.key].courseId = picked.id;
   config.courses[picked.key].courseResourceId = picked.id;
+  config.dryRun = false;
   if (!config.courses[picked.key].courseUrl) {
     config.courses[picked.key].courseUrl = 'https://uai.unipus.cn/app/cmgt/resource-detail/{courseId}';
   }
