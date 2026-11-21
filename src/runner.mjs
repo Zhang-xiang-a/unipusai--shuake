@@ -208,18 +208,62 @@ if (argv.includes('--audit')) {
   }
 }
 const lockFile=path.join(output,'runner.lock');
-try {
-  const prior=JSON.parse(fsSync.readFileSync(lockFile,'utf8'));
+
+// --setup 只把当前登录态存下来：不答题、不动进度、不写题目结果。
+// 两个进程同时做这件事，最坏是重复写一遍同一个文件，没有危害。
+//
+// 反过来，让它被 runner.lock 挡住却是实打实的坑：一次异常退出（或者被强杀，
+// 那样 process.on('exit') 根本不会跑）留下的锁，会让「重新登录」这条路彻底走不通，
+// 而终端上显示的还是「登录态没保存成功，跳过这本」——完全指错了方向，
+// 用户照着提示去重新登录一百遍也没用。
+const setupOnly = argv.includes('--setup');
+if (!setupOnly) {
+  // 先把现有锁读出来。这里要容忍三种"其实没有锁"的情况：
+  //   1. 文件不存在（ENOENT）
+  //   2. 文件是半截 JSON —— 断电、强杀、磁盘满都可能留下这种
+  //   3. 内容能解析但没有 pid
+  // 前两种如果不接住，启动就直接抛 SyntaxError，比被锁挡住还难查。
+  let prior = null;
   try {
-    process.kill(prior.pid,0);
-    console.error(`已有脚本正在运行（PID ${prior.pid}），本次未重复启动。\n如需重启：先执行 npm run stop，等原进程退出后执行 npm run resume，再运行原命令。`);
-    process.exit(1);
+    prior = JSON.parse(fsSync.readFileSync(lockFile, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('runner.lock 内容坏了（多半是上次被强杀留下的半截文件），当没有锁处理。');
+      try { fsSync.unlinkSync(lockFile); } catch {}
+    }
+    prior = null;
   }
-  catch(e){if(e.code!=='ESRCH')throw e;}
-  fsSync.unlinkSync(lockFile);
-} catch(e){if(e.code!=='ENOENT')throw e;}
-fsSync.writeFileSync(lockFile,JSON.stringify({pid:process.pid,time:new Date().toISOString()}),{flag:'wx'});
-process.on('exit',()=>{try {if(JSON.parse(fsSync.readFileSync(lockFile,'utf8')).pid===process.pid)fsSync.unlinkSync(lockFile);}catch{}});
+
+  if (prior && Number.isInteger(prior.pid)) {
+    let alive = false;
+    try { process.kill(prior.pid, 0); alive = true; }
+    catch (error) { if (error.code !== 'ESRCH') throw error; }
+
+    if (alive) {
+      // PID 还在，但可能是被别的进程复用了这个号。配合锁里的时间戳一起看：
+      // 超过 12 小时的锁基本可以断定是残留（正常一次刷课不会跑这么久）。
+      // 时间戳本身读不出来，也当过期——宁可放行，也不要让人卡在一个说不清的锁上。
+      const ageMs = Date.now() - new Date(prior.time || 0).getTime();
+      const stale = !Number.isFinite(ageMs) || ageMs > 12 * 3600 * 1000;
+      if (!stale) {
+        console.error(`已有脚本正在运行（PID ${prior.pid}），本次未重复启动。`);
+        console.error('如需重启：先执行 npm run stop，等原进程退出后执行 npm run resume，再运行原命令。');
+        console.error('如果确认那个进程早就没了（比如上次是直接关窗口/强杀的），直接删掉这个文件再跑：');
+        console.error(`  ${lockFile}`);
+        process.exit(1);
+      }
+      console.error(`发现一个超过 12 小时的旧锁（PID ${prior.pid}），当残留清掉。`);
+    }
+  }
+
+  try { fsSync.unlinkSync(lockFile); } catch {}
+  fsSync.writeFileSync(lockFile, JSON.stringify({pid: process.pid, time: new Date().toISOString()}), {flag: 'wx'});
+  process.on('exit', () => {
+    try {
+      if (JSON.parse(fsSync.readFileSync(lockFile, 'utf8')).pid === process.pid) fsSync.unlinkSync(lockFile);
+    } catch {}
+  });
+}
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const controlFile = path.join(output,'control.json');
 async function gate() {
