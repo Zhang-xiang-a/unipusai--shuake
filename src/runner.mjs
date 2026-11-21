@@ -269,6 +269,10 @@ const context = browser.contexts()[0];
 if (!context) throw new Error('现有 Edge 没有可用上下文');
 context.setDefaultTimeout(config.network.gotoTimeoutMs ?? 30000);
 const authFile = SESSION_FILE;
+// browser-profile 原来是靠 browser.mjs 启动 Edge 时顺带创建的。
+// 但 --setup 连的是已经在跑的 Edge，不经过那条路；全新解压的项目里这个目录
+// 根本不存在，后面写 runner-session.json 就会 ENOENT。这里自己兜住。
+await fs.mkdir(path.dirname(authFile), {recursive: true});
 let auth;
 try { auth = JSON.parse(await fs.readFile(authFile, 'utf8')); }
 catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -320,7 +324,18 @@ if (argv.includes('--setup')) {
     else storage.origins.push({...session,localStorage:[]});
   }
   // 会话文件保存在 browser-profile 下，已被 .gitignore 排除，不要提交或分享。
-  await fs.writeFile(authFile,JSON.stringify(storage));
+  try {
+    await fs.mkdir(path.dirname(authFile), {recursive: true});
+    await fs.writeFile(authFile,JSON.stringify(storage));
+  } catch (error) {
+    // 原来这里直接把 ENOENT 堆栈甩给用户，看不出该怎么办。
+    const why = error.code === 'ENOENT' ? '目录不存在（可能是把程序放在了只读位置）'
+      : error.code === 'EACCES' || error.code === 'EPERM' ? '没有写入权限'
+      : error.code === 'EBUSY' ? '文件被别的程序占着'
+      : (error.code || error.message);
+    throw new Error(`登录态存不下来：${why}。目标文件 ${authFile}。` +
+      '换一个能写的目录（比如 D:\\unipus）再试，别放在压缩包的临时目录里。');
+  }
   console.log('登录已校验并保存，直接进入运行验证，保持当前浏览器会话。');
   logger.info('登录状态已校验并保存到 browser-profile/runner-session.json（本地文件，勿分享）');
   // --setup 只负责校验并保存登录态，保存完就该退出。
