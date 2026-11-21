@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {gotoWithRetry} from './net.mjs';
+import {detectLoginLost} from './browser-session.mjs';
 
 // Read only rendered directory entries and visit required task pages; never submit.
 export async function crawlRequired({context, overview, solver, config, output, gate, wait, snapshot}) {
@@ -32,6 +33,24 @@ export async function crawlRequired({context, overview, solver, config, output, 
   for (let i = 0; i < 45; i++) {
     unitCount = await unitTabs.count();
     if (unitCount) break;
+    // URL 还停在 uai 但页面自己写着"登录过期，请重新登录"——这种情况只看 URL 判断不出来。
+    const lost = await detectLoginLost(overview, {ssoHost: config.course?.login?.ssoHost});
+    if (lost && i >= 2) {
+      const bodyTail = await overview.evaluate(() =>
+        String(document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 200)).catch(() => '');
+      throw new Error([
+        `课程目录页显示未登录：${lost}`,
+        `  页面文字：${bodyTail}`,
+        '',
+        '不是选择器的问题，是这个账号在 uai.unipus.cn 上的登录态已经失效。',
+        '常见原因：',
+        '  1) 同一个账号在别的电脑 / 别的浏览器里也登着，后登的把这里顶掉了',
+        '  2) 登录已超过有效期',
+        '做法：在专用 Edge 窗口里打开 https://uai.unipus.cn 重新登录，',
+        '      确认页面上能看到「我的课程」和课程列表，再重跑 npm run crawl。',
+        '      如果反复掉线，先把其它设备上的 U校园 退出登录。',
+      ].join('\n'));
+    }
     await wait(1000);
   }
   if (!unitCount) {
