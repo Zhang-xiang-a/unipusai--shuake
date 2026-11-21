@@ -216,7 +216,36 @@ npm start -- --answer --execute --from-unit 3 --skip-banked-cloze
 - `--text-only`：不上传截图，只发文本和控件（更快；首次建议先带截图跑一遍确认）
 - `--steps`：本次最多执行多少步
 
-### 6.3 从指定任务继续
+### 6.3 体检与补做
+
+按课程页真实状态看还差哪些：
+
+```powershell
+npm run audit-missing    # 只体检，列出未完成任务，有未完成时退出码为 1
+npm run fix-missing      # 体检完直接补做，跑完即可
+```
+
+体检读的是课程页的 `course_progress`，不是本地进度文件；课程页说过了就算过，
+本地记成 `learning` 也不会被翻出来重跑。补做范围也由体检结果决定，不会从第一个单元重新开始。
+
+### 6.4 挂机刷必修学习时长
+
+教程成绩里必修学习时长有硬性要求时，用挂机脚本：
+
+```powershell
+npm run watch -- --check     # 先读一次当前时长，确认选择器还能对上
+npm run watch                # 正式开始挂机
+```
+
+脚本循环播放 U1~U6 的 Preview 板块，每个视频播完后在当前页停留 5 分钟；
+每轮开始前读一次「综合成绩」里的必修学习时长，满 20 小时自动退出。
+
+- `--hours 20`：目标时长
+- `--dwell-minutes 5`：每个视频播完后停留的分钟数
+- 出现「长时间无操作，学习已暂停」这类弹窗会自动点掉并继续播放
+- 进度写在 `artifacts/course3/watch-progress.json`，日志在 `watch.log`
+
+### 6.5 从指定任务继续
 
 先看队列序号：
 
@@ -233,7 +262,7 @@ npm start -- --answer --execute --course course3 --unit 3 --skip-banked-cloze --
 
 `--from` 只决定起点，不覆盖已有状态；要让之前跳过的任务重新执行，加 `--retry-skipped`。
 
-### 6.4 暂停、恢复、停止、跳过
+### 6.6 暂停、恢复、停止、跳过
 
 另开一个 PowerShell 窗口：
 
@@ -246,7 +275,7 @@ npm run skip
 
 暂停会阻止后续动作，已发出的单次点击无法撤回。`stop` 之后重新运行前先执行 `npm run resume`。
 
-### 6.5 核验课程侧状态
+### 6.7 核验课程侧状态
 
 ```powershell
 npm run verify -- --unit 3 --skip-banked-cloze --tasks 33,35,39

@@ -31,7 +31,7 @@
 | `unitCount` | number | 是 | 这门课有多少个单元，取值 1~30。`--unit` 的上限也来自这里。 |
 | `answerSource` | string | 否 | `openai-api`（默认，走 OpenAI 兼容接口，每轮独立无历史）、`deepseek-web`（旧的网页端模式，需要额外一个 DeepSeek 标签）、`manual`（脚本只做学习任务，答题交给你自己）。 |
 | `submitTexts` | string[] | 否 | 提交按钮的文案。默认 `["提交", "提交答案", "Submit"]`。元素以 `^` 开头时按正则匹配，其余按包含匹配。 |
-| `manualTaskTypes` | string[] | 否 | 需要你手动完成、脚本只跳过不代做的题型，默认 `["项目作品上传", "复习自评"]`。 |
+| `manualTaskTypes` | string[] | 否 | 需要你手动完成、脚本只跳过不代做的题型，默认 `[]`。作品上传和复习自检已经由脚本自己处理（见下方 `learningPolicy`），只有确实想跳过某类题型时才在这里点名。 |
 | `skipTaskTypes` | string[] | 否 | 额外跳过、且不写进队列的题型，默认空数组。 |
 | `listeningKeywords` | string[] | 否 | 判断“听力任务”的关键词。听力任务会套用固定规则：填空全填 `1`，单选选每组第一项。默认 `["听力", "听写", "listening", "dictation"]`。 |
 | `referencePathAlias` | string | 否 | 教材原文所在目录的名字，用于把原文作为答案校对参考。默认 `Reading the text`。 |
@@ -167,7 +167,15 @@
 | `video` | `normal_play_until_ended` | 视频按正常速度播放到结束，不改进度。 |
 | `vocabulary` | `next_until_last_then_quiz` | 词汇卡片逐张点“下一个”，完成后进入练习。 |
 | `subtasks` | `track_full_unit_section_tab_task_path` | 任务进度按“单元/栏目/页签/子任务”完整路径记录。 |
-| `commentReply` | `666` | 评论 / 讨论区任务（页面是「我来评论」+「发 布」）自动发布的文字。评论区已有内容时不再重复发布。 |
+| `commentReply` | `666` | 评论 / 讨论区任务（页面是「我来评论」+「发 布」）自动发布的文字。评论区已有内容时不再重复发布。输入框在页面底部时会先滚动到可视区再输入。 |
+| `uploadFile` | `""` | `Unit project` 等作品上传任务要提交的本地文件路径。留空则跳过这类任务。只上传并点「提 交」，不写任何正文。 |
+
+### 两类不需要模型的题型
+
+| 题型 | 处理方式 |
+|---|---|
+| `项目作品上传`（Unit project） | 把 `learningPolicy.uploadFile` 指向的文件塞进页面的 `input[type=file]`，等页面上出现「文件名 + 体积」后点「提 交」，再确认一次弹窗。已经传过就直接提交，不重复上传。 |
+| `复习自评`（Review & check） | 一列自评项，逐项点掉所有还是空心状态的勾选框，勾完即保存。已经全勾的直接记为完成。 |
 
 ## 4. `defaults.typeRules`
 

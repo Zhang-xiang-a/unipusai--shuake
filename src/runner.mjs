@@ -551,6 +551,7 @@ try {
       courseUrl:config.courseUrl,
       onTaskError:config.runnerPolicy?.taskFailure || 'continue',
       onlyKeys:fixKeys,
+      uploadFile:config.course.learningPolicy?.uploadFile || '',
       logger});
     process.exit(0);
   }

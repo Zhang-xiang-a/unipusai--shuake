@@ -1,7 +1,9 @@
 // manualTypes / skipTypes 来自课程配置：不同教材里"手动任务""默认跳过题"的名称可能不同。
 // 不传时保持旧默认，测试与旧调用不受影响。
+// 默认不排除任何题型：作品上传和复习自检现在由脚本自己处理，
+// 需要跳过就在 config 的 manualTaskTypes / skipTaskTypes 里点名。
 export function selectQueue(inventory,types,{unit,type,skipBankedCloze=false,
-  manualTypes=['项目作品上传','复习自评'],skipTypes=[]}={}) {
+  manualTypes=[],skipTypes=[]}={}) {
   const manual=new Set(manualTypes);
   const skip=new Set(skipTypes);
   return inventory.map(t=>({...t,path:[...t.path,t.task],type:types.get(t.key)}))

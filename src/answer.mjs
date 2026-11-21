@@ -9,6 +9,24 @@ import {canContinueReplyFailure, shouldSkipRecord} from './policy.mjs';
 import {isChoiceControl,choiceSubmitPlan} from './choice.mjs';
 import {detectLoginLost} from './browser-session.mjs';
 import {inspectComment, postComment} from './comment.mjs';
+import {inspectChecklist, tickAll} from './checklist.mjs';
+import {inspectUpload, uploadWork} from './upload.mjs';
+
+/** 页面是不是「一列可勾选自评」——只看结构，避免按题型名字误判。 */
+async function looksLikeChecklist(page) {
+  try {
+    return await page.evaluate(() => [...document.querySelectorAll('span[class*="anticon"]')]
+      .filter(el => /check-square|check-circle/.test(String(el.className || ''))).length >= 3);
+  } catch { return false; }
+}
+
+/** 页面有没有作品上传区。 */
+async function looksLikeUpload(page) {
+  try {
+    return await page.evaluate(() => !!document.querySelector('input[type=file]')
+      && !!document.querySelector('.question-multi-file-upload, .ant-upload-drag, .unipus-upload'));
+  } catch { return false; }
+}
 
 // 听力关键词来自课程配置（course.listeningKeywords）；不传时用内置默认，保持旧行为。
 export function isListeningTask(task, text='', keywords) {
@@ -133,7 +151,7 @@ export async function finalizeSubmit({page,gate,wait,uiTexts={}}) {
 
 export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,execute,setCourse,dryRun,maxSteps,maxStallRounds=3,maxRoundsPerTask=12,policy={},argv=process.argv,
   course={},submitTexts,manualTaskTypes,skipTaskTypes,listeningKeywords,uiTexts={},unitCount=6,
-  onTaskError='continue',onlyKeys=null,logger}={}) {
+  onTaskError='continue',onlyKeys=null,uploadFile='',logger}={}) {
   const submitOptions={submitTexts};
   const readingSeconds=course.learningPolicy?.readingSeconds ?? 10;
   const referencePathAlias=course.referencePathAlias || 'Reading the text';
@@ -272,6 +290,32 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     // 只有 runnerPolicy.taskFailure=stop 时才像旧行为一样整体中断。
     try {
     if(await consumeSkip({page,output,t,progress,save,label}))continue;
+    // Review & check：一列自评项，全部打勾即通过，没有提交按钮。
+    if(t.type==='复习自评' || await looksLikeChecklist(page)) {
+      const checklist=await inspectChecklist(page);
+      if(checklist.isChecklist) {
+        console.log(`${tag} 复习自检：${checklist.total} 项，未勾 ${checklist.unchecked} 项`);
+        if(dryRun){console.log('复习自检仅预览，未勾选');if(++steps>=maxSteps)return;continue;}
+        const result=await tickAll({page,gate,wait});
+        progress.tasks[t.key]={...progress.tasks[t.key],status:'submitted',evidence:result,updated:new Date().toISOString()};await save();
+        console.log(`${tag} 复习自检完成（${result.status}，勾选 ${result.ticked} 项）`);
+        if(++steps>=maxSteps)return;
+        continue;
+      }
+    }
+    // Unit project：上传固定文件后提交，不需要模型参与。
+    if(t.type==='项目作品上传' || await looksLikeUpload(page)) {
+      const upload=await inspectUpload(page);
+      if(upload.isUpload) {
+        console.log(`${tag} 作品上传：已有 ${upload.fileCount} 个文件，准备上传并提交`);
+        if(dryRun){console.log('作品上传仅预览，未上传');if(++steps>=maxSteps)return;continue;}
+        const result=await uploadWork({page,filePath:uploadFile,gate,wait,submitTexts});
+        progress.tasks[t.key]={...progress.tasks[t.key],status:'submitted',evidence:result,updated:new Date().toISOString()};await save();
+        console.log(`${tag} 作品上传完成（${result.status}）`);
+        if(++steps>=maxSteps)return;
+        continue;
+      }
+    }
     // 评论 / 讨论区任务：页面是「我来评论」+「发 布」，和学生答题不是一套控件，
     // 交给模型只会点到禁用的按钮，所以直接按配置填一句话发布。
     const comment=await inspectComment(page);

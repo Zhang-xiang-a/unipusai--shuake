@@ -86,6 +86,8 @@ export const DEFAULTS = {
     readingSeconds: 10,
     // 评论 / 讨论区任务的自动回复内容；页面有「我来评论」输入框时直接发这句。
     commentReply: '666',
+    // Unit project 自动上传使用的本地文件。留空则跳过作品上传任务。
+    uploadFile: '',
     vocabulary: 'next_until_last_then_quiz',
     subtasks: 'track_full_unit_section_tab_task_path',
   },
@@ -238,7 +240,9 @@ export function resolveCourse(raw, selector = COURSE_KEYS[0], env = process.env)
     courseUrl,
     unitCount: Number(merged.unitCount ?? 6),
     submitTexts: merged.submitTexts || ['提交', '提交答案', 'Submit'],
-    manualTaskTypes: merged.manualTaskTypes || ['项目作品上传', '复习自评'],
+    // 作品上传和复习自检现在由脚本自己处理（src/upload.mjs、src/checklist.mjs），
+    // 默认不再当成「手动作答」跳过；仍然想跳过就在这里填题型名。
+    manualTaskTypes: merged.manualTaskTypes || [],
     skipTaskTypes: merged.skipTaskTypes || [],
     listeningKeywords: merged.listeningKeywords || ['听力', '听写', 'listening', 'dictation'],
     answerSource: env.UNIPUS_ANSWER_SOURCE || merged.answerSource || 'openai-api',

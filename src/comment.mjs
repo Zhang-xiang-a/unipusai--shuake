@@ -50,12 +50,23 @@ export async function postComment({page, text = '666', gate, wait}) {
 
   const box = page.locator(COMMENT_QUERY.box).first();
   await gate();
-  await box.click({timeout: 5000}).catch(() => {});
+  // 评论框常在页面底部，不先滚进视口的话 click 会被判定为「不在可视区域」而失败。
+  await box.scrollIntoViewIfNeeded({timeout: 5000}).catch(() => {});
+  await page.evaluate(() => {
+    const el = document.querySelector('.ds-discussion-bottom textarea, textarea[placeholder*="评论"]');
+    if (el) el.scrollIntoView({block: 'center', behavior: 'instant'});
+  }).catch(() => {});
+  await wait(400);
+  await box.click({timeout: 8000}).catch(async () => {
+    // 被浮层挡住时退回到 DOM 聚焦再输入。
+    await box.focus().catch(() => {});
+  });
   await box.fill(text, {timeout: 8000});
   await wait(300);
 
   const submit = page.locator(COMMENT_QUERY.submit).first();
   if (!await submit.count()) throw new Error('评论任务没有找到发布按钮');
+  await submit.scrollIntoViewIfNeeded({timeout: 4000}).catch(() => {});
 
   // 发布按钮在输入有效内容后才会解除 disabled，等它自己启用。
   let enabled = false;

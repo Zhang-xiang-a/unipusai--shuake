@@ -17,7 +17,7 @@
       "unitCount": 6,
       "answerSource": "openai-api",
       "submitTexts": ["提交", "提交答案", "Submit"],
-      "manualTaskTypes": ["项目作品上传", "复习自评"],
+      "manualTaskTypes": [],
       "skipTaskTypes": [],
       "listeningKeywords": ["听力", "听写", "listening", "dictation"],
       "referencePathAlias": "Reading the text"
@@ -30,7 +30,7 @@
       "unitCount": 6,
       "answerSource": "openai-api",
       "submitTexts": ["提交", "提交答案", "Submit"],
-      "manualTaskTypes": ["项目作品上传", "复习自评"],
+      "manualTaskTypes": [],
       "skipTaskTypes": [],
       "listeningKeywords": ["听力", "听写", "listening", "dictation"],
       "referencePathAlias": "Reading the text"
@@ -43,7 +43,7 @@
       "unitCount": 6,
       "answerSource": "openai-api",
       "submitTexts": ["提交", "提交答案", "Submit"],
-      "manualTaskTypes": ["项目作品上传", "复习自评"],
+      "manualTaskTypes": [],
       "skipTaskTypes": [],
       "listeningKeywords": ["听力", "听写", "listening", "dictation"],
       "referencePathAlias": "Reading the text"
@@ -56,7 +56,7 @@
       "unitCount": 6,
       "answerSource": "openai-api",
       "submitTexts": ["提交", "提交答案", "Submit"],
-      "manualTaskTypes": ["项目作品上传", "复习自评"],
+      "manualTaskTypes": [],
       "skipTaskTypes": [],
       "listeningKeywords": ["听力", "听写", "listening", "dictation"],
       "referencePathAlias": "Reading the text"
@@ -127,7 +127,8 @@
       "readingSeconds": 10,
       "vocabulary": "next_until_last_then_quiz",
       "subtasks": "track_full_unit_section_tab_task_path",
-      "commentReply": "666"
+      "commentReply": "666",
+      "uploadFile": ""
     },
     "typeRules": {
       "manual": ["项目作品上传", "复习自评"],

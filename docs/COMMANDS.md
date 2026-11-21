@@ -25,6 +25,7 @@
 | `npm test` | 运行项目测试，不接触课程页面。 |
 | `npm run check` | 对全部源文件做 `node --check` 语法检查。 |
 | `npm run video` | 单独监控当前课件视频的播放进度（排查用）。 |
+| `npm run watch` | 挂机刷必修学习时长：循环播 U1~U6 的 Preview，每个播完在当前页停留 5 分钟，读「综合成绩」里的必修学习时长，满 20 小时自动退出。`--hours 20` 改目标，`--dwell-minutes 5` 改停留时长，`--check` 只读一次时长就退出。 |
 
 ## 2. `npm start` 常用参数
 
@@ -34,7 +35,7 @@
 | `--execute` | 实际填写、点击和提交；不加则只预览。 |
 | `--unit 3` | 只处理指定单元，上限由当前课程的 `unitCount` 决定。 |
 | `--from-unit 3` | 从第 3 个单元一路处理到最后一个单元，不用逐个 `--unit` 切换。与 `--unit` 互斥（数字相同则等价）。 |
-| `--only-missing` | 只处理本地进度里还没完成的任务（不是 `submitted` / `learned`），用于补漏。 |
+| `--only-missing` | 只处理本地进度里还没完成的任务（不是 `submitted` / `learned`），用于补漏。这是本地判断；要按课程页真实状态筛选请用 `npm run fix-missing`。 |
 | `--audit` | 只体检不答题：列出未完成任务后退出。加 `--fix` 则体检完直接补做。 |
 | `--type 翻译` | 只处理指定题型，名称需与 `npm run inventory` 报告一致。 |
 | `--skip-banked-cloze` | 排除选词完形（Banked cloze）。 |
@@ -44,7 +45,7 @@
 | `--steps 100` | 本次最多执行多少个队列步骤或答题轮次。 |
 | `--current` | 只处理当前打开的那个必修子任务。 |
 | `--from 12` | 从队列第 12 个任务开始（序号看 `--list` 的输出）。 |
-| `--from "Section C/Translation/Task 1"` | 从匹配该路径片段的任务开始；匹配多个或匹配不到会直接报错并列出候选。 |
+| `--from "Section C/Translation/Task 1"` | 从匹配该路径片段的任务开始；匹配多个或匹配不到会直接报错并列出候选。**注意**：`Review & check` 里的 `&` 在 PowerShell 中是保留字符，写进参数会被吞掉（`--from "Review & check"` 拿到空值）；改用序号 `--from 41`，或只写不含 `&` 的片段 `--from "check"`。 |
 | `--list` | 只打印筛选后的任务队列，不连接浏览器、不答题。 |
 | `--inspect` | 保存当前页面结构，不请求答案、不提交。 |
 | `--course course2` | 临时切换课程分组，不改配置文件。 |
