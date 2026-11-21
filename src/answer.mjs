@@ -52,7 +52,7 @@ async function consumeSkip({page,output,t,progress,save,label}) {
   return true;
 }
 
-export async function loadAnswerQueue({output, argv = process.argv, unitCount = 6, manualTaskTypes, skipTaskTypes}) {
+export async function loadAnswerQueue({output, argv = process.argv, unitCount = 6, manualTaskTypes, onlyKeys = null, skipTaskTypes}) {
   const inventory=JSON.parse(await fs.readFile(path.join(output,'inventory','required-tasks.json'),'utf8'));
   const report=JSON.parse(await fs.readFile(path.join(output,'inventory','type-report.json'),'utf8'));
   const types=new Map(Object.entries(report.groups).flatMap(([type,ts])=>ts.map(t=>[t.key,type])));
@@ -80,8 +80,14 @@ export async function loadAnswerQueue({output, argv = process.argv, unitCount = 
     queue=queue.filter(t=>t.unit>=fromUnit);
     if(unit===null)unit=fromUnit;
   }
-  // --only-missing：只处理本地进度里还没完成的任务，用于补漏。
-  if(argv.includes('--only-missing')) {
+  // --only-missing：只处理还没完成的任务，用于补漏。
+  // 体检给的 onlyKeys 经过课程侧核对，优先级高于本地进度：本地 learning/failed
+  // 但课程页已通过的任务不会因为这里被重新跑一遍。
+  if(onlyKeys) {
+    const before=queue.length;
+    queue=queue.filter(t=>onlyKeys.has(t.key));
+    console.log(`按体检结果处理 ${queue.length}/${before} 个未完成任务（已排除课程侧确认完成的任务）`);
+  } else if(argv.includes('--only-missing')) {
     let progress={tasks:{}};
     try { progress=JSON.parse(await fs.readFile(path.join(output,'answer-progress.json'),'utf8')); }
     catch(error) { if(error.code!=='ENOENT')throw error; }
@@ -89,6 +95,7 @@ export async function loadAnswerQueue({output, argv = process.argv, unitCount = 
     const before=queue.length;
     queue=queue.filter(t=>!done.has(progress.tasks?.[t.key]?.status));
     console.log(`--only-missing：${before} 个任务中已完成 ${before-queue.length} 个，本次处理 ${queue.length} 个`);
+    console.log('（这是按本地进度判断的；要按课程页真实状态筛选请用 npm run fix-missing）');
   }
   return {queue,unit,inventory};
 }
@@ -126,7 +133,7 @@ export async function finalizeSubmit({page,gate,wait,uiTexts={}}) {
 
 export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,execute,setCourse,dryRun,maxSteps,maxStallRounds=3,maxRoundsPerTask=12,policy={},argv=process.argv,
   course={},submitTexts,manualTaskTypes,skipTaskTypes,listeningKeywords,uiTexts={},unitCount=6,
-  onTaskError='continue',logger}={}) {
+  onTaskError='continue',onlyKeys=null,logger}={}) {
   const submitOptions={submitTexts};
   const readingSeconds=course.learningPolicy?.readingSeconds ?? 10;
   const referencePathAlias=course.referencePathAlias || 'Reading the text';
@@ -135,7 +142,7 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
   const overviewHost=courseHosts.find(h=>/uai/i.test(h)) || 'uai.unipus.cn';
   const dismissText=uiTexts.dismiss || '我知道了';
   const startPattern=new RegExp(`^(${uiTexts.startLearning || '开始学习'}|${uiTexts.continueLearning || '继续学习'})$`);
-  const {queue:loaded,unit,inventory}=await loadAnswerQueue({output,argv,unitCount,manualTaskTypes,skipTaskTypes});
+  const {queue:loaded,unit,inventory}=await loadAnswerQueue({output,argv,unitCount,manualTaskTypes,skipTaskTypes,onlyKeys});
   // 编号与 node src/runner.mjs --list 的序号一致，也就是 --from 使用的编号。
   const total=loaded.length;
   let queue=loaded.map((t,position)=>({t,number:position+1}));
@@ -177,7 +184,10 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     const label=`${tag} Unit ${t.unit} / ${t.path.join(' / ')}`;
     // 进度里也带上编号，便于和 --list / --from 的序号对照。
     progress.tasks[t.key]={...progress.tasks[t.key],number,total};
-    if(shouldSkipRecord(progress.tasks[t.key],policy)) { console.log(`${label} 保留已有状态 ${progress.tasks[t.key].status}，跳过执行`); continue; }
+    // 体检说这些任务没完成（课程侧 pass=0），本地可能还记着 submitted/learned，
+    // 此时不能按本地状态跳过，否则补做会空转。
+    if(!onlyKeys && shouldSkipRecord(progress.tasks[t.key],policy)) { console.log(`${label} 保留已有状态 ${progress.tasks[t.key].status}，跳过执行`); continue; }
+    if(onlyKeys && shouldSkipRecord(progress.tasks[t.key],policy)) console.log(`${label} 课程侧未通过，忽略本地状态 ${progress.tasks[t.key].status}，重新作答`);
     await gate();
     // 弹窗文案不止「我知道了」一种，而遮罩会让后续所有点击超时，所以多路兜底：
     // 常见文案 → 右上角关闭 → Escape，并确认遮罩真的消失。

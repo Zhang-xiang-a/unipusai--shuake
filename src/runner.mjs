@@ -21,6 +21,9 @@ import {logger} from './log.mjs';
 import {connectBrowser} from './net.mjs';
 
 const argv = process.argv;
+// --audit --fix 时由体检算出的精确待办（课程侧核对过），答题阶段直接用它筛选，
+// 不再依赖本地进度，避免课程页已完成但本地记成 learning 的任务被重跑。
+let fixKeys = null;
 
 // 拼错开关（--excute / --exectue）以前会被静默忽略，于是 dryRun 保持 true，
 // 看起来像「跑起来了但什么都没做」。这里直接拦下并给出近似建议。
@@ -182,6 +185,7 @@ if (argv.includes('--audit')) {
     }
     if (!argv.includes('--fix')) process.exit(report.pending.length ? 1 : 0);
     if (!report.pending.length) process.exit(0);
+    fixKeys = new Set(report.pending.map(task => task.key));
     console.log('\n开始补做未完成的任务…');
     // --answer / --execute / --only-missing 已在启动时展开，这里直接往下走即可。
   } else {
@@ -546,6 +550,7 @@ try {
       unitCount:config.course.unitCount,
       courseUrl:config.courseUrl,
       onTaskError:config.runnerPolicy?.taskFailure || 'continue',
+      onlyKeys:fixKeys,
       logger});
     process.exit(0);
   }
