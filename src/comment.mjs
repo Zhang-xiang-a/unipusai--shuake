@@ -40,13 +40,21 @@ export async function inspectComment(page) {
 
 /**
  * 在评论框里填一段话并点「发 布」。
- * 评论区已经有内容时直接返回 already，不重复刷屏。
+ * 评论区是全课程共享的，别人的评论不代表自己发过，
+ * 所以只有列表里出现一条**内容完全等于**要发的话时才认定为已发过。
  */
-export async function postComment({page, text = '666', gate, wait}) {
+export async function postComment({page, text = '666', gate, wait, force = false}) {
   const info = await inspectComment(page);
   if (!info.isComment) throw new Error('当前页面不是评论任务');
   if (!info.hasBox) throw new Error('评论任务没有找到输入框');
-  if (info.count > 0) return {status: 'already', count: info.count, preview: info.preview};
+  // 自己的评论在列表里会带「我」标记（条目结构：昵称/我/删除/正文/时间），
+  // 别人的不会。所以先认「我」，认不到再退回整行比对正文。
+  // 用整行比对而不是 includes：同学发「6666666」不该挡住我们要发的「666」。
+  const posted = (info.preview || []).some(entry => {
+    const lines = String(entry).split('\n').map(line => line.trim());
+    return lines.includes('我') || lines.includes(text);
+  });
+  if (!force && posted) return {status: 'already', count: info.count, preview: info.preview};
 
   const box = page.locator(COMMENT_QUERY.box).first();
   await gate();

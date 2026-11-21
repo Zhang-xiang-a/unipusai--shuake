@@ -23,3 +23,14 @@ export const SESSION_FILE = path.join(BROWSER_PROFILE_DIR, 'runner-session.json'
 export function courseOutputDir(courseKey, base = ARTIFACTS_DIR) {
   return path.join(base, String(courseKey || 'course1'));
 }
+
+/**
+ * 配置里的文件路径统一按「项目根目录」解析。
+ * config.json 里写相对路径（assets/work.png）时，不管从哪个目录启动都能找到；
+ * 绝对路径原样返回。空串仍返回空串，由调用方判断是不是没配。
+ */
+export function resolveProjectPath(file) {
+  const text = String(file || '').trim();
+  if (!text) return '';
+  return path.isAbsolute(text) ? text : path.resolve(ROOT_DIR, text);
+}

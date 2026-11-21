@@ -16,7 +16,7 @@ import {createApiPlanner} from './api-planner.mjs';
 import {currentReplyText,createReplyReader} from './deepseek-reply.mjs';
 import {isChoiceControl,executeChoice} from './choice.mjs';
 import {describeCourse, listCourses, loadConfig, loadRawConfig} from './config.mjs';
-import {SESSION_FILE, courseOutputDir} from './paths.mjs';
+import {SESSION_FILE, courseOutputDir, resolveProjectPath} from './paths.mjs';
 import {logger} from './log.mjs';
 import {connectBrowser} from './net.mjs';
 
@@ -111,6 +111,14 @@ if (!oneShotCommand && !argv.includes('--answer') && argv.some(arg => ['--unit',
   console.log('      当前是通用导航模式，不会读任务队列；要按队列答题请加 --answer。');
 }
 logger.info(`启动：${describeCourse(config.course)}，dryRun=${config.dryRun}，输出目录 ${output}`);
+if (config.dryRun && argv.includes('--answer')) {
+  // 这条最容易被忽略：命令全程正常、每道题都打印，但一个字都没提交。
+  console.log('');
+  console.log('!!! 当前是预览模式（config.json 里 dryRun=true），答题/上传/评论都不会真的提交。');
+  console.log('!!! 要真跑：把 config.json 的 "dryRun": true 改成 false，或者加 --execute 参数。');
+  console.log('!!! 例：npm run start -- --answer --execute --unit 3 --type 项目作品上传');
+  console.log('');
+}
 await fs.mkdir(output, {recursive: true});
 if (argv.includes('--list') || argv.includes('--audit')) {
   // 只读队列，不连接浏览器、不占用 runner.lock。
@@ -560,7 +568,7 @@ try {
       courseUrl:config.courseUrl,
       onTaskError:config.runnerPolicy?.taskFailure || 'continue',
       onlyKeys:fixKeys,
-      uploadFile:config.course.learningPolicy?.uploadFile || '',
+      uploadFile:resolveProjectPath(config.course.learningPolicy?.uploadFile || ''),
       logger});
     process.exit(0);
   }

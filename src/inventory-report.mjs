@@ -28,6 +28,9 @@ export function classifyTask(task, rules = DEFAULTS.typeRules) {
 
   if (ruleMatches(rules.projectUpload, task)) return '项目作品上传';
   if (ruleMatches(rules.review, task)) return '复习自评';
+  // 讨论区页面上除了「我来评论」textarea，还常带一个搜索 input，
+  // 所以必须排在 input/textarea 判断之前，否则会被误判成「单词 / 短语填空」。
+  if (ruleMatches(rules.discussion || {task: 'Discussion|我来评论'}, task)) return '开放问答 / 讨论';
   if ((task.controls || []).some(c => c.className === 'caption' && test(rules.choiceCaption, c.text))) {
     return test(rules.trueFalseText, task.text) ? '三项判断（True / False / Not given）' : '选择题';
   }

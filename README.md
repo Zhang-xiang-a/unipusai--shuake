@@ -442,6 +442,35 @@ npm start -- --answer --execute --course course2
 
 ## 7. 出问题了怎么办
 
+### 作品上传：`learningPolicy.uploadFile` 怎么填
+
+填**相对项目根目录**的路径就行，不用写绝对路径：
+
+```json
+"learningPolicy": {
+  "uploadFile": "assets/work.png"
+}
+```
+
+仓库自带 `assets/work.png` 做占位示例，换成你自己的图片/文档即可。绝对路径也支持。
+
+找不到文件时会明确报出来，不会静默跳过。
+
+### 评论：`learningPolicy.commentReply`
+
+```json
+"learningPolicy": {
+  "commentReply": "666"
+}
+```
+
+评论区是**全课程共享的**，同学发过的内容不代表你发过。脚本的判断：
+
+- 列表里某条带「我」标记 → 认定自己已经发过，跳过
+- 没有「我」标记 → 填 `commentReply` 并点「发 布」
+
+所以重复跑不会刷屏，也不会因为别人先评论了就不发。
+
 ### 运行 `npm run browser` 没看到窗口
 
 专用 Edge 的窗口被关掉后，进程还会在后台驻留。这时 CDP 照样能操作标签，命令也照常报"已显示并复用"，但屏幕上什么都没有。
