@@ -100,7 +100,17 @@ export async function showBrowserPage(context, page) {
   const session = await context.newCDPSession(page);
   try {
     const {windowId, bounds} = await session.send('Browser.getWindowForTarget');
-    if (bounds.windowState === 'minimized') await session.send('Browser.setWindowBounds', {windowId, bounds: {windowState: 'normal'}});
+    // 窗口被最小化、被挪到屏幕外（换过显示器或分辨率）、或是全屏，都要先拉回来再摆位置。
+    // 单纯 bringToFront 只激活标签页，Windows 的前台锁不保证把整个窗口提到最前；
+    // 走一次 setWindowBounds 效果更稳。
+    const offscreen = bounds.left < -40 || bounds.top < -40
+      || bounds.left + bounds.width < 120 || bounds.top + bounds.height < 120;
+    const target = (bounds.windowState !== 'normal' || offscreen || !bounds.width || !bounds.height)
+      ? {windowState: 'normal', left: 60, top: 30,
+         width: Math.min(bounds.width || 1440, 1560),
+         height: Math.min(bounds.height || 900, 980)}
+      : {windowState: 'normal', left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height};
+    await session.send('Browser.setWindowBounds', {windowId, bounds: target});
     await page.bringToFront();
   } finally { await session.detach(); }
 }

@@ -443,6 +443,16 @@ npm start -- --answer --execute --course course2
 
 ## 7. 出问题了怎么办
 
+### 运行 `npm run browser` 没看到窗口
+
+专用 Edge 的窗口被关掉后，进程还会在后台驻留。这时 CDP 照样能操作标签，命令也照常报"已显示并复用"，但屏幕上什么都没有。
+
+加一个参数强制开新窗口：
+
+```powershell
+npm run browser -- --new-window
+```
+
 ### 提示"登录态已失效"
 
 登录过期了。做法：

@@ -27,6 +27,15 @@ async function ensurePages() {
   const browser = await chromium.connectOverCDP(endpoint, {timeout: config.network.connectTimeoutMs});
   const context = browser.contexts()[0];
   if (!context) throw new Error('CDP 会话没有可用浏览器上下文');
+  // 专用 Edge 关掉窗口后进程还活着（后台驻留），CDP 照常能操作标签，
+  // 但屏幕上没有任何窗口——这时 getWindowForTarget 依然能拿到窗口 ID，
+  // 靠 setWindowBounds 也唤不出来，只能新开一个窗口。
+  if (process.argv.includes('--new-window')) {
+    const bsession = await browser.newBrowserCDPSession();
+    await bsession.send('Target.createTarget', {url: config.courseUrl, newWindow: true, background: false});
+    await bsession.detach();
+    await sleep(1500);
+  }
   const {course, created} = await ensureBrowserPages(context, config);
   await showBrowserPage(context, course);
   console.log(created.length
