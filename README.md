@@ -86,7 +86,7 @@
 
 ```powershell
 # 方式一：git clone（推荐，之后更新方便）
-git clone https://github.com/Zhang-xiang-a/unipusai-.git unipus
+git clone https://github.com/Zhang-xiang-a/unipusai--shuake.git unipus
 cd unipus
 ```
 
