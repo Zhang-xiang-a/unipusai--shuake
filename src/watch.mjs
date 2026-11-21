@@ -24,8 +24,8 @@ const output = path.resolve(config.outputDir || path.join('artifacts', config.co
 const targetHours = flagValue(argv, '--hours', 20);
 const targetSeconds = Math.round(targetHours * 3600);
 const dwellMs = Math.round(flagValue(argv, '--dwell-minutes', 5) * 60 * 1000);
-const detailUrl = config.course.studyTimeUrl
-  || 'https://uai.unipus.cn/app/cmgt/resource-detail/12000000001';
+// 学习时长从课程的「综合成绩」页读；courseUrl 就是这门课的资源详情页。
+const detailUrl = config.course.studyTimeUrl || config.course.courseUrl;
 const progressFile = path.join(output, 'watch-progress.json');
 
 function log(message) {
