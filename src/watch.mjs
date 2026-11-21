@@ -7,7 +7,7 @@ import {loadConfig} from './config.mjs';
 import {connectBrowser} from './net.mjs';
 import {selectCoursePage, detectLoginLost} from './browser-session.mjs';
 import {loadAnswerQueue} from './answer.mjs';
-import {extractStudySeconds, formatDuration, dismissPauseDialog, ensurePlaying, videoState} from './watch-lib.mjs';
+import {extractStudySeconds, formatDuration, dismissPauseDialog, ensurePlaying, keepAlive, videoState} from './watch-lib.mjs';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -70,9 +70,25 @@ async function playOnce(page, task) {
   let lastTime = 0, idleSince = Date.now();
   for (let tick = 0; tick < 3600; tick++) {
     await sleep(2000);
-    await dismissPauseDialog(page, {wait: sleep});
+
+    // 「您已长时间未操作，学习暂停」：先点掉弹窗，再补一点「人还在」的动静。
+    // 只关弹窗是不够的——播放器是在数活跃度，不动鼠标过几分钟还会再弹。
+    const handled = await dismissPauseDialog(page, {wait: sleep});
+    if (handled) log(`弹窗已处理（${handled.button}）：${handled.text}`);
+    await keepAlive(page, {seed: (tick * 37) % 100 / 100});
+
     const state = await videoState(page);
-    if (!state) return {played: false, reason: '视频元素消失'};
+    if (!state) {
+      // 有的弹窗会把整个播放器换掉，video 元素跟着没了。
+      // 重新加载一次再看，不要直接算成一个失败的视频。
+      log('播放器不见了，重新加载这一页');
+      await page.reload({waitUntil: 'domcontentloaded', timeout: 45000}).catch(() => {});
+      await sleep(5000);
+      if (!(await ensurePlaying(page))) return {played: false, reason: '重新加载后仍然没有 video 元素'};
+      lastTime = 0;
+      idleSince = Date.now();
+      continue;
+    }
     if (state.ended || (state.duration > 0 && state.currentTime >= state.duration - 1)) {
       return {played: true, duration: state.duration, ended: true};
     }
@@ -101,6 +117,11 @@ async function main() {
   const page = selectCoursePage(browser.contexts()[0].pages(), config.login || {});
   const lost = await detectLoginLost(page, {ssoHost: config.login?.ssoHost || 'sso.unipus.cn'});
   if (lost) throw new Error(`登录态已失效（${lost}）：请在专用 Edge 里重新登录后重跑`);
+
+  // 后台标签会被浏览器降频（计时器被节流，有的播放器直接暂停），
+  // 挂机期间把这个标签放在前台。
+  await page.bringToFront().catch(() => {});
+  log('已把课程标签切到前台（放后台会被浏览器节流，视频会停）');
 
   // --check：只读一次学习时长就退出，用来确认选择器还能对上。
   if (argv.includes('--check')) {
@@ -141,7 +162,9 @@ async function main() {
         const until = Date.now() + dwellMs;
         while (Date.now() < until) {
           await sleep(15000);
-          await dismissPauseDialog(page, {wait: sleep});
+          const handled = await dismissPauseDialog(page, {wait: sleep});
+          if (handled) log(`停留期间弹窗已处理（${handled.button}）`);
+          await keepAlive(page);
         }
       } else {
         consecutiveFailures++;
