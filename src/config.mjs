@@ -264,14 +264,23 @@ export function resolveCourse(raw, selector = COURSE_KEYS[0], env = process.env)
   }
   const merged = mergeConfig(mergeConfig(DEFAULTS, raw.defaults || {}), courses[selector]);
   const courseId = env.UNIPUS_COURSE_ID || merged.courseId;
+  // resource-detail/ 后面要的是「课程资源 ID」，它和「课程 ID」不一定是同一个数。
+  // 大英3 就实测过：courseId=20001277964 打开是「暂无课程 登录过期」，
+  // 换成 courseResourceId=20001277967 才是 6 个单元。
+  // 所以地址里统一优先用 courseResourceId，没填才退回 courseId。
+  const resourceId = merged.courseResourceId || courseId;
   const template = String(merged.courseUrl || '');
-  const courseUrl = template.replace(/\{courseId\}/g, String(courseId ?? ''));
+  const courseUrl = template
+    .replace(/\{courseId\}/g, String(resourceId ?? ''))
+    .replace(/\{courseResourceId\}/g, String(resourceId ?? ''))
+    .replace(/\{rawCourseId\}/g, String(courseId ?? ''));
   const label = merged.label || selector;
   return {
     ...merged,
     key: selector,
     label,
     courseId,
+    courseResourceId: merged.courseResourceId || '',
     courseUrl,
     unitCount: Number(merged.unitCount ?? 6),
     submitTexts: merged.submitTexts || ['提交', '提交答案', 'Submit'],

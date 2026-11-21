@@ -442,6 +442,40 @@ npm start -- --answer --execute --course course2
 
 ## 7. 出问题了怎么办
 
+### courseId 和 courseResourceId 的区别
+
+U 校园的课程入口是：
+
+```
+https://uai.unipus.cn/app/cmgt/resource-detail/20001277967
+                                              └────┬────┘
+                                    这里要的是「课程资源 ID」
+```
+
+**这两个 ID 不一定是同一个数。** 实测大英3：
+
+| 填的值 | 结果 |
+|---|---|
+| `courseId: "20001277964"` | 页面显示「暂无课程 登录过期，请重新登录」 |
+| `courseResourceId: "20001277967"` | 6 个单元正常 |
+
+而 U 校园对「课程不存在」和「你没登录」返回的是同一句提示，所以填错 ID 时很容易被误导成登录问题。
+
+配置里两个都填上最稳：
+
+```json
+"course3": {
+  "courseId": "20001277964",
+  "courseResourceId": "20001277967"
+}
+```
+
+`courseUrl` 里的 `{courseId}` 占位符会自动优先用 `courseResourceId`，没填才退回 `courseId`。
+所以只填一个也行，但填错就会打不开。
+
+**怎么确认填对了**：`npm run crawl` 能跑出 `必修遍历 N/N` 就是对的；
+报「这个 courseId 打不开：登录是好的」就是 ID 有问题。
+
 ### 作品上传：`learningPolicy.uploadFile` 怎么填
 
 填**相对项目根目录**的路径就行，不用写绝对路径：

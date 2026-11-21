@@ -13,52 +13,92 @@
       "label": "大学英语 1",
       "textbook": "新视野大学英语（第四版）读写教程 1",
       "courseId": "<COURSE_ID_1>",
+      "courseResourceId": "",
       "courseUrl": "https://uai.unipus.cn/app/cmgt/resource-detail/{courseId}",
       "unitCount": 6,
       "answerSource": "openai-api",
-      "submitTexts": ["提交", "提交答案", "Submit"],
+      "submitTexts": [
+        "提交",
+        "提交答案",
+        "Submit"
+      ],
       "manualTaskTypes": [],
       "skipTaskTypes": [],
-      "listeningKeywords": ["听力", "听写", "listening", "dictation"],
+      "listeningKeywords": [
+        "听力",
+        "听写",
+        "listening",
+        "dictation"
+      ],
       "referencePathAlias": "Reading the text"
     },
     "course2": {
       "label": "大学英语 2",
       "textbook": "新视野大学英语（第四版）读写教程 2",
       "courseId": "<COURSE_ID_2>",
+      "courseResourceId": "",
       "courseUrl": "https://uai.unipus.cn/app/cmgt/resource-detail/{courseId}",
       "unitCount": 6,
       "answerSource": "openai-api",
-      "submitTexts": ["提交", "提交答案", "Submit"],
+      "submitTexts": [
+        "提交",
+        "提交答案",
+        "Submit"
+      ],
       "manualTaskTypes": [],
       "skipTaskTypes": [],
-      "listeningKeywords": ["听力", "听写", "listening", "dictation"],
+      "listeningKeywords": [
+        "听力",
+        "听写",
+        "listening",
+        "dictation"
+      ],
       "referencePathAlias": "Reading the text"
     },
     "course3": {
       "label": "大学英语 3",
       "textbook": "新视野大学英语（第四版）读写教程 3",
       "courseId": "<COURSE_ID_3>",
+      "courseResourceId": "",
       "courseUrl": "https://uai.unipus.cn/app/cmgt/resource-detail/{courseId}",
       "unitCount": 6,
       "answerSource": "openai-api",
-      "submitTexts": ["提交", "提交答案", "Submit"],
+      "submitTexts": [
+        "提交",
+        "提交答案",
+        "Submit"
+      ],
       "manualTaskTypes": [],
       "skipTaskTypes": [],
-      "listeningKeywords": ["听力", "听写", "listening", "dictation"],
+      "listeningKeywords": [
+        "听力",
+        "听写",
+        "listening",
+        "dictation"
+      ],
       "referencePathAlias": "Reading the text"
     },
     "course4": {
       "label": "大学英语 4",
       "textbook": "新视野大学英语（第四版）读写教程 4",
       "courseId": "<COURSE_ID_4>",
+      "courseResourceId": "",
       "courseUrl": "https://uai.unipus.cn/app/cmgt/resource-detail/{courseId}",
       "unitCount": 6,
       "answerSource": "openai-api",
-      "submitTexts": ["提交", "提交答案", "Submit"],
+      "submitTexts": [
+        "提交",
+        "提交答案",
+        "Submit"
+      ],
       "manualTaskTypes": [],
       "skipTaskTypes": [],
-      "listeningKeywords": ["听力", "听写", "listening", "dictation"],
+      "listeningKeywords": [
+        "听力",
+        "听写",
+        "listening",
+        "dictation"
+      ],
       "referencePathAlias": "Reading the text"
     }
   },
@@ -84,7 +124,10 @@
     },
     "login": {
       "ssoHost": "sso.unipus.cn",
-      "courseHosts": ["uai.unipus.cn", "ucontent.unipus.cn"]
+      "courseHosts": [
+        "uai.unipus.cn",
+        "ucontent.unipus.cn"
+      ]
     },
     "uiTexts": {
       "submitConfirm": "确定提交吗",
@@ -103,9 +146,18 @@
       "retryDelayMs": 1500
     },
     "throttle": {
-      "actionDelayMs": [1800, 4500],
-      "fillDelayMs": [250, 600],
-      "choiceDelayMs": [150, 350]
+      "actionDelayMs": [
+        1800,
+        4500
+      ],
+      "fillDelayMs": [
+        250,
+        600
+      ],
+      "choiceDelayMs": [
+        150,
+        350
+      ]
     },
     "logging": {
       "dir": "logs",
@@ -131,9 +183,17 @@
       "uploadFile": ""
     },
     "typeRules": {
-      "manual": ["项目作品上传", "复习自评"],
-      "projectUpload": { "task": "^Unit project$", "text": "upload your work" },
-      "review": { "task": "^Review & check$" },
+      "manual": [
+        "项目作品上传",
+        "复习自评"
+      ],
+      "projectUpload": {
+        "task": "^Unit project$",
+        "text": "upload your work"
+      },
+      "review": {
+        "task": "^Review & check$"
+      },
       "choiceCaption": "^[A-Z]$",
       "trueFalseText": "True\\.|False\\.|Not given\\.",
       "bankedCloze": "Banked cloze",
