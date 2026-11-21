@@ -15,7 +15,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import {spawnSync} from 'node:child_process';
+// spawn 跑长时间子进程（Ctrl+C 能打断），spawnSync 只用于 taskkill 收尾。
+import {spawn, spawnSync} from 'node:child_process';
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {ROOT_DIR, CONFIG_FILE, CONFIG_EXAMPLE_FILE, ARTIFACTS_DIR, SESSION_FILE} from './paths.mjs';
@@ -170,6 +171,9 @@ async function runNpm(args, {allowFail = false, label = ''} = {}) {
   }
   return status;
 }
+
+// 便于测试：直接验证 runChild 能不能真的起子进程。
+export {runChild, runNode};
 
 // ───────────────────────────── 配置读写 ─────────────────────────────
 
