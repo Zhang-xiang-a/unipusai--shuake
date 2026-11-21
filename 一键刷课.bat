@@ -63,29 +63,27 @@ if not exist "src\wizard.mjs" (
     exit /b 1
 )
 
-"%NODE_EXE%" "src\wizard.mjs"
-set "CODE=%ERRORLEVEL%"
+REM ---------------------------------------------------------------
+REM  Launch node in its OWN console and exit this batch immediately.
+REM
+REM  Why: if cmd.exe runs node directly, pressing Ctrl+C makes cmd
+REM  sit on its "Terminate batch job (Y/N)?" prompt and it stops
+REM  executing the rest of this file. The window stays open forever
+REM  and the program looks unstoppable - node itself already exited.
+REM
+REM  With start, node gets a fresh console with no cmd in between.
+REM  Ctrl+C then goes straight to node, which exits cleanly.
+REM ---------------------------------------------------------------
 
-echo.
-if "%CODE%"=="130" (
-    echo  Stopped by Ctrl+C. Progress is saved - run this file again to resume.
-    echo.
-    pause
-    exit /b 130
-)
-if not "%CODE%"=="0" (
-    echo  Exited with code %CODE%.
-    echo  Progress is saved - just run this file again to resume.
-) else (
-    echo  Done. You can close this window.
-)
-echo.
-pause
-exit /b %CODE%
+"%NODE_EXE%" --version >nul 2>nul
+if errorlevel 1 goto :noenv
+
+start "Unipus Runner" "%NODE_EXE%" "src\wizard.mjs"
+exit /b 0
 
 :noenv
 echo.
-echo  [x] Could not set up Node.js automatically.
+echo  [x] Node.js is not usable.
 echo.
 echo      Install it manually, then run this file again:
 echo        1. Open  https://nodejs.org/en/download

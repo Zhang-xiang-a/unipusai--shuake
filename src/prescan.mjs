@@ -310,6 +310,10 @@ async function main() {
     for (const line of String(error.message || error).split('\n')) console.log('  ' + line);
     gap();
     process.exitCode = 1;
+    // bat 用 start 起独立控制台，不停一下窗口会一闪就关。
+    if (process.stdin.isTTY) {
+      try { closeReadline(); rl = makeReadline(); await ask('\n按回车关掉这个窗口…'); } catch {}
+    }
   } finally {
     closeReadline();
   }

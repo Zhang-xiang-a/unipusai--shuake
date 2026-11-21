@@ -61,28 +61,17 @@ if not exist "src\prescan.mjs" (
     exit /b 1
 )
 
-"%NODE_EXE%" "src\prescan.mjs"
-set "CODE=%ERRORLEVEL%"
+REM Same reason as the main launcher: start node in its own console so
+REM Ctrl+C reaches node directly instead of getting stuck in cmd.
+"%NODE_EXE%" --version >nul 2>nul
+if errorlevel 1 goto :noenv
 
-echo.
-if "%CODE%"=="130" (
-    echo  Stopped by Ctrl+C. Nothing to worry about - what was scanned stays saved.
-    echo.
-    pause
-    exit /b 130
-)
-if not "%CODE%"=="0" (
-    echo  Exited with code %CODE%.
-) else (
-    echo  Done. You can close this window.
-)
-echo.
-pause
-exit /b %CODE%
+start "Unipus Prescan" "%NODE_EXE%" "src\prescan.mjs"
+exit /b 0
 
 :noenv
 echo.
-echo  [x] Could not set up Node.js automatically.
+echo  [x] Node.js is not usable.
 echo.
 echo      Install it manually, then run this file again:
 echo        1. Open  https://nodejs.org/en/download

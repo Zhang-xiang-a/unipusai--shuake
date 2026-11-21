@@ -929,6 +929,20 @@ function bless() {
 
 // ───────────────────────────── 主流程 ─────────────────────────────
 
+/**
+ * 出错后停住，等人按回车。
+ * bat 现在用 start 把 node 放进独立控制台，如果这里不停，窗口会一闪就关，
+ * 用户连错误信息都看不到。
+ */
+async function waitBeforeExit() {
+  if (!process.stdin.isTTY) return;
+  try {
+    closeReadline();
+    rl = makeReadline();
+    await ask('\n按回车关掉这个窗口…');
+  } catch { /* 用户直接关了窗口 */ }
+}
+
 /** 第 0 步：先问这次是刷课还是刷时长。两条路后面完全不同。 */
 async function stepMode() {
   console.log(cyan('━'.repeat(58)));
@@ -1048,6 +1062,7 @@ async function main() {
     console.log(dim('  进度都存着，修好问题后重新双击 一键刷课.bat 就能接着刷。'));
     gap();
     process.exitCode = 1;
+    await waitBeforeExit();
   } finally {
     closeReadline();
   }
