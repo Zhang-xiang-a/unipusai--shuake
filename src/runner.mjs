@@ -6,6 +6,8 @@ import {parsePlan, validatePlan, varyChoice, normalizeFillPlan, actionDelayRange
 import {crawlRequired} from './crawl.mjs';
 import {answerQueue, loadAnswerQueue} from './answer.mjs';
 import {auditQueue, formatAudit} from './audit.mjs';
+import {readCourseLeafs} from './course-progress.mjs';
+import {isLoginPage} from './browser-session.mjs';
 import {formatQueue} from './queue.mjs';
 import {muteCourse} from './mute.mjs';
 import {DeepSeekReplyError, runnerPolicy} from './policy.mjs';
@@ -24,7 +26,7 @@ const argv = process.argv;
 // 看起来像「跑起来了但什么都没做」。这里直接拦下并给出近似建议。
 const KNOWN_FLAGS = new Set([
   '--all','--answer','--audit','--course','--courses','--crawl','--current','--depth','--dry-run','--execute','--fix',
-  '--from','--from-task','--from-unit','--inspect','--list','--new-chat','--only-missing','--retry-skipped','--setup',
+  '--from','--from-task','--from-unit','--inspect','--list','--local-only','--new-chat','--only-missing','--retry-skipped','--setup',
   '--skip-banked-cloze','--steps','--tasks','--text-only','--type','--unit','--yes','--help',
 ]);
 function suggestFlag(flag) {
@@ -94,7 +96,7 @@ const output = courseOutputDir(config.course.key);
 const coursewareHost = (config.login?.courseHosts || []).find(host => /ucontent/i.test(host)) || 'ucontent.unipus.cn';
 // 队列筛选参数只在答题模式生效，漏加 --answer 时明确提示，避免在目录页空转。
 // --list / --inspect / --crawl 等一次性命令本身就会读队列，不需要这条提醒。
-const oneShotCommand = ['--list','--audit','--fix','--inspect','--crawl','--courses','--setup'].some(flag => argv.includes(flag));
+const oneShotCommand = ['--list','--audit','--fix','--local-only','--inspect','--crawl','--courses','--setup'].some(flag => argv.includes(flag));
 if (!oneShotCommand && !argv.includes('--answer') && argv.some(arg => ['--unit','--from-unit','--type','--skip-banked-cloze','--from','--current','--retry-skipped'].includes(arg))) {
   console.log('提示：--unit / --from-unit / --type / --skip-banked-cloze / --from / --current / --retry-skipped 只在 --answer 模式下生效。');
   console.log('      当前是通用导航模式，不会读任务队列；要按队列答题请加 --answer。');
@@ -114,8 +116,39 @@ if (argv.includes('--list') || argv.includes('--audit')) {
   let progress = {tasks:{}};
   try { progress = JSON.parse(await fs.readFile(path.join(output,'answer-progress.json'),'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   console.log(`当前课程：${config.course.label}（${config.course.key}）`);
-  if (argv.includes('--audit')) {
-    const report = auditQueue(queue, progress);
+  /** lock 文件存在不等于有进程在跑：异常退出会留下残留锁，必须按 PID 是否存活判断。 */
+function runnerBusy(output) {
+  const lockFile = path.join(output, 'runner.lock');
+  try {
+    const prior = JSON.parse(fsSync.readFileSync(lockFile, 'utf8'));
+    try { process.kill(prior.pid, 0); return prior.pid; }
+    catch (error) { if (error.code !== 'ESRCH') throw error; return false; }
+  } catch (error) { if (error.code !== 'ENOENT') throw error; return false; }
+}
+
+if (argv.includes('--audit')) {
+    // 以课程侧数据为准：本地记成 learning/failed 的任务，课程页显示已通过就不再重做。
+    let courseLeafs = null;
+    if (!argv.includes('--local-only')) {
+      try {
+        const busy = runnerBusy(output);
+        if (busy) throw new Error(`runner 正在运行（PID ${busy}），课程侧数据可能在变，已跳过核对（想只看本地进度加 --local-only）`);
+        const browser = await connectBrowser(config.browserEndpoint, {
+          retries: config.network.retries, retryDelayMs: config.network.retryDelayMs, timeoutMs: config.network.connectTimeoutMs});
+        const host = config.login?.courseHosts?.find(h => /ucontent/i.test(h)) || 'ucontent.unipus.cn';
+        const page = browser.contexts()[0]?.pages().find(p => { try { return new URL(p.url()).hostname === host; } catch { return false; } });
+        if (!page) throw new Error('没有打开的课程课件标签，已跳过课程侧核对（先在 Edge 里打开课程页面）');
+        // 登录过期时页面停在 SSO，reload 不会发出任何 course_progress 请求，必须说清原因。
+        if (isLoginPage(page, {ssoHost: config.course?.login?.ssoHost || 'sso.unipus.cn'}))
+          throw new Error('登录态已失效（页面停在 SSO 登录页）：请在专用 Edge 里重新登录后再体检');
+        const {leafs, failed} = await readCourseLeafs({page, tasks: queue});
+        courseLeafs = leafs;
+        if (failed.length) console.log(`课程侧核对：${failed.length} 个单元读取失败（unitId ${failed.map(f => f.unitId).join('、')}），这些任务按本地进度判断`);
+      } catch (error) {
+        console.log(`课程侧核对跳过：${error.message}`);
+      }
+    }
+    const report = auditQueue(queue, progress, {courseLeafs});
     console.log(formatAudit(report));
     await fs.writeFile(path.join(output, 'audit.json'), JSON.stringify({
       course: config.course.key,

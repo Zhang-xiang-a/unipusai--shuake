@@ -43,3 +43,28 @@ test('formatAudit 按单元分组，并提示全部完成', () => {
   assert.match(all, /全部必修任务都已完成/);
   assert.doesNotMatch(all, /--only-missing/);
 });
+
+test('课程侧已通过的任务不再算未完成，哪怕本地记成 learning 或 failed', () => {
+  const withUrls = QUEUE.map((t, i) => ({...t, url: `https://uai.unipus.cn/portal#/course/courseware/UNIT-${t.unit}/leaf-${i}`}));
+  // 本地进度落后：视频记成 learning，填空题记成 failed。
+  const progress = {tasks: {
+    '[1,"A","x"]': {status: 'learning'},
+    '[1,"A","y"]': {status: 'failed'},
+  }};
+  // 课程侧说这两个都通过了（pass=2）。
+  const courseLeafs = {'leaf-0': {state: {pass: 2}}, 'leaf-1': {state: {pass: 1}}};
+  const report = auditQueue(withUrls, progress, {courseLeafs});
+  assert.equal(report.courseChecked, true);
+  assert.equal(report.courseVerified, 2);
+  assert.equal(report.done.length, 2);
+  assert.deepEqual(report.pending.map(t => t.key), ['[2,"B","z"]', '[2,"B","w"]']);
+});
+
+test('课程侧没通过的任务仍然算未完成，哪怕本地记成 submitted', () => {
+  const withUrls = QUEUE.map((t, i) => ({...t, url: `https://uai.unipus.cn/portal#/course/courseware/UNIT-${t.unit}/leaf-${i}`}));
+  const progress = {tasks: {'[1,"A","x"]': {status: 'submitted'}}};
+  const courseLeafs = {'leaf-0': {state: {pass: 0}}, 'leaf-1': {state: {pass: 1}}};   // 第一个课程侧没通过
+  const report = auditQueue(withUrls, progress, {courseLeafs});
+  assert.deepEqual(report.done.map(r => r.key), ['[1,"A","y"]']);
+  assert.ok(report.pending.some(t => t.key === '[1,"A","x"]'), '课程侧未通过的应当回到待办');
+});

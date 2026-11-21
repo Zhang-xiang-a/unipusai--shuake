@@ -1,28 +1,42 @@
-// 必修任务体检：把队列和本地进度对一遍，列出真正没做完的任务。
-// 只读 answer-progress.json，不开浏览器、不改课程状态。
+// 必修任务体检：把队列和进度对一遍，列出真正没做完的任务。
+// 有课程侧数据（course_progress）时以课程为准，本地状态只作为补充说明。
+import {courseCompleted, leafIdOf} from './course-progress.mjs';
+
 const DONE = new Set(['submitted', 'learned']);
 
-export function auditQueue(queue, progress) {
+export function auditQueue(queue, progress, {courseLeafs = null} = {}) {
   const tasks = progress?.tasks || {};
   const done = [], unknown = [], failed = [], other = [];
+  let courseVerified = 0;
   for (const task of queue) {
     const status = tasks[task.key]?.status || '';
     const row = {key: task.key, unit: task.unit, path: task.path, type: task.type || '', status};
+    // 课程侧有这条任务的确切结论时，一律以课程为准：
+    // pass 为 1/2 算完成（哪怕本地记成 learning/failed），其余算未完成（哪怕本地记成 submitted）。
+    // 课程侧压根没这条记录（页面没加载到）才回退到本地状态。
+    if (courseLeafs) {
+      const leaf = courseLeafs[leafIdOf(task.url)];
+      if (leaf) {
+        if (courseCompleted(leaf)) { done.push({...row, status: '已完成（课程侧核对）'}); courseVerified++; }
+        else other.push({...row, status: `课程侧未通过（pass=${leaf.state?.pass ?? '无'}）`});
+        continue;
+      }
+    }
     if (DONE.has(status)) done.push(row);
     else if (!status) unknown.push(row);
     else if (status === 'failed') failed.push(row);
     else other.push(row);
   }
-  // pending 顺序保持队列顺序，补做时按课程目录顺序走，避免来回跳。
+  // pending 保持队列顺序，补做时按课程目录顺序走，避免来回跳。
   const pendingKeys = new Set([...unknown, ...failed, ...other].map(r => r.key));
   const pending = queue.filter(t => pendingKeys.has(t.key));
-  return {total: queue.length, done, unknown, failed, other, pending};
+  return {total: queue.length, done, unknown, failed, other, pending, courseVerified, courseChecked: !!courseLeafs};
 }
 
 export function formatAudit(report) {
   const lines = [];
   lines.push(`必修任务体检：共 ${report.total} 个`);
-  lines.push(`  已完成 ${report.done.length}`);
+  lines.push(`  已完成 ${report.done.length}${report.courseChecked ? `（其中 ${report.courseVerified} 个由课程侧确认）` : ''}`);
   lines.push(`  未开始 ${report.unknown.length}`);
   lines.push(`  失败   ${report.failed.length}`);
   if (report.other.length) lines.push(`  其他   ${report.other.length}（skipped / in-progress / needs-review）`);
