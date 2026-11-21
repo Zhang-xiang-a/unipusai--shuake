@@ -142,10 +142,45 @@ export function loadRawConfig({file = CONFIG_FILE} = {}) {
       `然后填写目标课程的 courseId，详见 README 的“配置方法”。`
     );
   }
+  const rawText = fs.readFileSync(file, 'utf8');
+  // 空文件几乎都是「右键新建了一个 config.json 再重命名」造成的，
+  // 直接甩 Unexpected end of JSON input 帮不上忙，得说清该怎么做。
+  if (!rawText.trim()) {
+    throw new Error([
+      `配置文件是空的：${file}`,
+      '',
+      '这个文件不能手动新建，必须从模板复制一份再改：',
+      '  copy config.example.json config.json',
+      '',
+      '然后只需要改三处：',
+      '  "activeCourse"                     —— 跑哪门课，例如 "course3"',
+      '  courses.<那门课>.courseId          —— 课程 ID，地址栏 resource-detail/ 后面那串数字',
+      '  "learningPolicy.uploadFile"        —— 要交的作品文件路径，没有就留空',
+    ].join('\n'));
+  }
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return JSON.parse(rawText);
   } catch (error) {
-    throw new Error(`配置文件不是合法 JSON：${file}\n${error.message}`);
+    // 尽量把出错位置翻译成人能看懂的行号，而不是只给一个 offset。
+    const line = (() => {
+      const match = /position (\d+)/.exec(error.message);
+      if (!match) return null;
+      const upto = rawText.slice(0, Number(match[1]));
+      return {no: upto.split('\n').length, col: upto.length - upto.lastIndexOf('\n')};
+    })();
+    const hint = line ? `\n大概在第 ${line.no} 行、第 ${line.col} 个字符附近。` : '';
+    const commonTail = rawText.trimEnd().slice(-1);
+    const extra = commonTail && !['}', ']', '"'].includes(commonTail)
+      ? '\n最后一行似乎没写完（少了大括号或引号）。'
+      : '\n常见原因：多了或少了逗号、用了中文引号（“”）、注释没删干净（JSON 不支持注释）。';
+    throw new Error([
+      `配置文件不是合法 JSON：${file}`,
+      error.message + hint + extra,
+      '',
+      '最省事的做法是重新复制一份模板再改：',
+      '  copy /Y config.example.json config.json',
+      '复制前先把自己填过的 courseId 记下来。',
+    ].join('\n'));
   }
 }
 
