@@ -1,406 +1,625 @@
-# 大学英语 1–4 通用的 U 校园浏览器运行器
+# 网课全自动学习助手（Unipus 通用版）
 
-一个基于 Playwright + 视觉大模型 API 的**本地课程辅助工具**：复用你自己的 Edge 登录状态，读取课程目录里标为必修的任务，把页面截图和控件清单发给模型（OpenAI 兼容接口，可换成任意支持图片的模型），按它返回的 JSON 操作计划在页面上填写，并核验提交结果。
+一个跑在自己电脑上的命令行小工具。打开课程页面，自动读题、作答、提交、看视频、刷学习时长，
+把大学英语 1~4 这类 Unipus 课程从头到尾刷完。**不用装插件、不用改客户端、不碰课程服务器。**
 
-每次答题请求都是独立的：不带历史对话、不复用上一题的上下文，所以不会越答越慢、也不会被前面的题带偏。
-
-它不是刷课成品，也不承诺任何分数。它的定位是：把重复的“打开任务 → 抄答案 → 点提交”流程变得省事，同时把每一步都留在你自己的浏览器会话里，可随时暂停、停止、从任意任务续跑。
-
-课程差异全部收敛在配置文件里。**大学英语 1、2、3、4 四门课共用同一套代码，切换课程只改 `config.json`。**
+> 全程在你本机的浏览器里操作，登录态只保存在本地，账号密码不会被上传到任何地方。
 
 ---
 
-## 1. 课程范围
+## 0. 开工前先准备这些（重要，先看）
 
-| 分组 | 课程 | 需要填写 |
+### 必需
+
+| 项目 | 要求 | 怎么确认 |
 |---|---|---|
-| `course1` | 大学英语 1 | 课程 ID（`courseId`） |
-| `course2` | 大学英语 2 | 课程 ID |
-| `course3` | 大学英语 3 | 课程 ID |
-| `course4` | 大学英语 4 | 课程 ID |
+| 操作系统 | **Windows 10 / 11**（64 位） | 本工具依赖 Windows 上的 Edge 浏览器调用方式，Mac / Linux 需要自己改代码 |
+| Node.js | **20.0 或更高版本**（推荐 22 / 24 LTS） | 装好后在 PowerShell 里敲 `node -v`，会显示版本号 |
+| 浏览器 | **Microsoft Edge**（系统自带，不用另装） | 开始菜单搜 Edge 能打开就行 |
+| 硬盘空间 | 至少 **300 MB** 空余 | 依赖包 + 浏览器缓存 + 截图 |
+| 大模型 API Key | **必须支持"看图"**（多模态） | 见下面 0.2，这是花钱的部分 |
+| 能登录的课程账号 | 课程已加入你的学习账号，能正常打开课程页面 | 自己先用浏览器登一次确认 |
 
-四门课的配置结构完全一致，都包含：课程 ID、章节入口 URL、单元数量、提交按钮文案、手动任务清单、听力关键词、题型识别规则。默认按“大学英语 1–4 / 新视野大学英语（第四版）读写教程 1–4”填写，教材名只用于提示词，不影响运行逻辑。
+### 0.1 装 Node.js（唯一需要装的软件）
 
-平台页面文案或域名变化时，改配置即可，不需要动代码：
+1. 打开 <https://nodejs.org/zh-cn>，下载 **LTS 版本**的 Windows 安装包（`.msi`）。
+2. 双击安装，一路"下一步"。**不要**取消勾选"Add to PATH"。
+3. 装完**重新打开**一个 PowerShell 窗口（旧窗口读不到新环境变量）。
+4. 敲 `node -v`，看到类似 `v22.11.0` 就成功了。
 
-- 提交按钮叫法不同 → `submitTexts`
-- 课程 / 登录域名不同 → `login.courseHosts`、`login.ssoHost`
-- 弹窗、答题小结、词汇卡片按钮文案不同 → `uiTexts`
-- 题型识别关键词不同 → `typeRules`
-- 单元数不是 6 → `unitCount`
+### 0.2 准备一个能看图的 API Key
 
-字段逐项说明见 [docs/CONFIG.md](docs/CONFIG.md)。
+这个工具的答题方式是：**把题目截图发给大模型，让它看懂题目再给答案**。
+所以模型必须能读图片，纯文字模型的答案会完全对不上。
+
+支持任意 **OpenAI 接口格式**的服务，任选其一：
+
+| 服务 | 说明 | 大概花费 |
+|---|---|---|
+| DeepSeek | 便宜，`deepseek-chat` 支持图片，中文题目理解好 | 刷完一本书通常几块钱 |
+| 阿里云百炼 / 通义 | 有免费额度，`qwen-vl-max` 系列 | 有免费额度 |
+| 智谱 GLM | `glm-4v` 系列 | 便宜 |
+| OpenAI 官方 | 质量最稳，需要海外网络和信用卡 | 较贵 |
+
+你需要准备三样东西，后面填进 `.env` 文件：
+
+- **接口地址**（Base URL），例如 `https://api.deepseek.com`
+- **模型名字**（Model），例如 `deepseek-chat`
+- **密钥**（API Key），形如 `sk-xxxxxxxxxxxx`
+
+> 如果服务商给你的地址结尾带 `/v1`，一般填到 `/v1` 为止，脚本会自动拼接。
+
+### 0.3 不需要准备的
+
+- 不需要装 Python
+- 不需要装数据库
+- 不需要买服务器
+- 不需要会写代码（会敲几行命令就行）
 
 ---
 
-## 2. 工作原理
+## 1. 这东西能干什么
 
-1. **复用登录**：`npm run browser` 用独立的 Edge 用户目录（`browser-profile/`）启动浏览器，监听本机 `127.0.0.1:9228`。你在这里登录课程平台，脚本通过 CDP 连上去操作，不保存账号密码。
-2. **采集必修清单**：`npm run crawl` 逐单元读取目录里带“必修”标记的任务，保存任务路径、题干和控件快照，不答题、不提交。
-3. **生成操作计划**：答题时截取课程主内容区，连同题干文本与控件清单，用 `POST /chat/completions` 发给配置的模型（截图走 `image_url` base64），要求返回带 nonce 的受限 JSON（`actions` 数组，最多 64 个动作）。JSON 会做结构、控件 ID、链接域名三重校验。
-4. **执行与核验**：按计划点击 / 填写 / 选择 / 拖拽，动作之间带随机等待；提交后等待“答题小结”出现才算成功。单个任务失败会记录原因并继续下一个，控制类错误（停止命令、登录失效、标签关闭）则立即中断。
+| 能力 | 说明 |
+|---|---|
+| 自动答题 | 选择题、填空题、判断题、翻译、选词完形、句型改写、开放问答，读题 → 作答 → 提交 |
+| 自动看视频 | 音视频任务自动播完，不跳进度 |
+| 自动读阅读材料 | 停留规定时间后进入下一步 |
+| 自动点词汇卡 | 逐张点"下一个"，最后做配套练习 |
+| 自动发评论 | 讨论区任务自动发一句话 |
+| 自动上传作品 | Unit project 上传指定文件后提交 |
+| 自动自评打勾 | Review & check 逐项打勾 |
+| 任务体检 | 按课程页真实状态列出还差哪些任务 |
+| 自动补做 | 体检完直接补做没过的任务 |
+| 挂机刷时长 | 循环播视频，学时长达标自动停 |
 
-学习类任务不走模型：视频静音正常播放到结束，阅读停留 10 秒（暂停不计时），词汇卡片逐张点“下一个”。
-
----
-
-## 3. 环境依赖
-
-- **Windows 10/11**（脚本按 Windows 路径与 Edge 安装位置编写）
-- **Node.js ≥ 20**（开发与验证使用 Node 24）
-- **Microsoft Edge**（脚本会按常见安装路径查找 `msedge.exe`）
-- **Playwright**（`npm install` 自动安装，`^1.56.0`）
-- 可正常访问的 U 校园账号
-- 一个支持图片输入的模型 API Key（OpenAI 官方，或任意 OpenAI 兼容的中转 / 本地服务）
-
-无需安装 Python、数据库或额外浏览器。
+**不能做的**：不替你登录、不破解验证码、不改课程服务器数据。
+所有操作等于"一个人在浏览器里点了点"，只是点得比人快、比人稳。
 
 ---
 
-## 4. 安装
+## 2. 五分钟跑起来（第一次用照这个做）
+
+### 第 1 步：拿到文件 + 装依赖
+
+两种方式任选：
 
 ```powershell
-git clone https://github.com/Zhang-xiang-a/Unipus_deepseek.git
-cd Unipus_deepseek
+# 方式一：git clone（推荐，之后更新方便）
+git clone https://github.com/Zhang-xiang-a/Unipus_deepseek.git unipus
+cd unipus
+```
+
+```text
+方式二：从本仓库 Releases 页面下载最新版 zip，解压到一个路径没有中文和空格的地方，例如 D:\unipus
+```
+
+> 路径里带中文或空格偶尔会让浏览器启动失败，能避开就避开。
+
+进到项目文件夹后，在地址栏输入 `powershell` 回车（或按住 `Shift` + 右键 → **在此处打开 PowerShell 窗口**），然后：
+
+```powershell
 npm install
-Copy-Item config.example.json config.json
-Copy-Item .env.example .env
 ```
 
-然后编辑 `config.json`，把目标课程的 `courseId` 填进去（见下一节），再编辑 `.env` 填 API Key 与模型 ID。
+等它跑完（一分钟左右）。看到 `added N packages` 就成功了。
 
-先运行一次语法检查和测试，确认环境正常：
+> 依赖只有 Playwright 一个。它默认不去下载浏览器内核——本工具是通过调试协议
+> 直接操作你系统里的 Edge，所以不需要额外执行 `npx playwright install`。
 
-```powershell
-npm run check
-npm test
+### 第 2 步：填 API 密钥
+
+复制 `.env.example`，重命名成 **`.env`**（注意前面有个点，没有扩展名）。
+
+用记事本打开，填成你自己的：
+
+```ini
+OPENAI_API_KEY=sk-你的密钥粘这里
+OPENAI_MODEL=deepseek-chat
+OPENAI_BASE_URL=https://api.deepseek.com
 ```
 
----
+三条都要填。填完保存。
 
-## 5. 配置
+> `.env` 里只放密钥，**不要**写账号密码。
 
-### 5.1 复制模板
+### 第 3 步：填课程信息
 
-`config.example.json` 里四门课都是占位符（`<COURSE_ID_1>` 等），可以直接公开。实际使用的 `config.json` 已被 `.gitignore` 排除。
+复制 `config.example.json`，重命名成 **`config.json`**。
 
-### 5.2 配置模型接口
+打开它，只需要改三处：
 
-复制环境变量模板，填 Key 和模型 ID：
-
-```powershell
-Copy-Item .env.example .env
-```
-
-```dotenv
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
-OPENAI_MODEL=gpt-4o-mini
-```
-
-- `OPENAI_MODEL` 必须是**支持图片输入**的模型：答题时会把题面截图一起发过去。
-- 用中转、Azure 网关或本地服务时改 `OPENAI_BASE_URL`。远程地址要求 `https`；本机 `127.0.0.1` / `localhost` 允许 `http`。
-- `.env` 已被 `.gitignore` 排除，Key 不会进仓库。
-- 不用 `.env` 也可以：在 `config.json` 的 `defaults.api` 里写 `baseUrl` / `model`，Key 仍走系统环境变量（变量名由 `keyEnv` 指定，默认 `OPENAI_API_KEY`）。
-
-调用格式就是 OpenAI 那一套：`POST {baseUrl}/chat/completions`，`messages` 里带 `image_url` 图片块，从 `choices[0].message.content` 取 JSON。两种常见兼容差异会自动处理：服务不支持 `response_format: json_object`、或推理模型不接受 `temperature` 时，去掉该参数重试一次。
-
-字段逐项说明见 [docs/CONFIG.md](docs/CONFIG.md)。
-
-### 5.3 找到课程 ID
-
-1. 在浏览器登录 U 校园，进入目标课程的学习页。
-2. 地址栏形如 `https://uai.unipus.cn/app/cmgt/resource-detail/12345678901`。
-3. 最后那串数字就是 `courseId`，填进对应分组：
+**① 选你要跑哪本教材**
 
 ```json
-{
-  "activeCourse": "course3",
-  "courses": {
-    "course3": {
-      "label": "大学英语 3",
-      "textbook": "新视野大学英语（第四版）读写教程 3",
-      "courseId": "12345678901",
-      "courseUrl": "https://uai.unipus.cn/app/cmgt/resource-detail/{courseId}",
-      "unitCount": 6
-    }
+"activeCourse": "course1"
+```
+
+`course1` 到 `course4` 分别对应大学英语 1~4。哪本在这门课里就跑哪个。
+
+**② 填这门课的 ID**
+
+找到 `courses` 里对应的那一段（比如 `course1`），把 `courseId` 改成你自己的：
+
+```json
+"course1": {
+  "name": "大学英语 1",
+  "courseId": "这里填课程ID",
+  ...
+}
+```
+
+**课程 ID 怎么找**：用 Edge 登录学习平台，点进要刷的那门课，
+看地址栏，形如：
+
+```
+https://uai.unipus.cn/app/cmgt/resource-detail/12345678901
+                                              └────┬────┘
+                                              这一串数字就是
+```
+
+**③（可选）填作品上传用的图片**
+
+如果课程里有 Unit project 需要交作品：
+
+```json
+"learningPolicy": {
+  ...
+  "uploadFile": "D:\\我的文件\\作业.png"
+}
+```
+
+路径里的反斜杠要写**两个** `\\`，或者改用 `/`。不填就跳过这类任务。
+
+### 第 4 步：登录一次
+
+```powershell
+npm run browser
+```
+
+会弹出一个**专用 Edge 窗口**（这个窗口和平时用的 Edge 是分开的，登录一次以后一直有效）。
+
+在这个窗口里：
+
+1. 手动登录学习平台
+2. 点进课程，能看到课程目录为止
+
+**登录完不用关窗口**，回到 PowerShell 继续。
+
+想确认登上了没：
+
+```powershell
+npm run setup
+```
+
+它会自动检测，看到"已保存登录态"之类的提示就对了。
+
+### 第 5 步：采集任务清单
+
+```powershell
+npm run crawl
+```
+
+脚本会自己翻一遍课程目录，把每个必修任务的题目、控件、链接都记下来。
+
+- 会打开很多页面，全程预计 **5~15 分钟**
+- 期间**别动那个 Edge 窗口**，别最小化程序的运行
+- 结束后会看到类似 `共 185 个必修任务` 的提示
+
+> 换书、换学期、课程目录更新后，都要重新跑一次这一步。
+
+### 第 6 步：先空跑一遍看看
+
+```powershell
+npm start -- --list
+```
+
+会列出所有任务，形如：
+
+```
+  1. Unit 1 / Unit preview / Quotation  [阅读或尚未识别的交互]  未开始
+  2. Unit 1 / Unit preview / Preview    [音视频学习]          未开始
+  3. Unit 1 / Section B / Reading skills / Learning  [阅读]     未开始
+  ...
+```
+
+这一步**不连浏览器、不填任何东西**，纯粹让你看看认出来的题目对不对。
+
+### 第 7 步：正式开跑
+
+```powershell
+npm start -- --answer --execute --from-unit 1
+```
+
+这一条就是全自动了：从第一单元开始，一路答题、看视频、提交，直到最后一单元。
+
+- **第一次建议先只跑一个单元**，确认没问题再放开：
+
+```powershell
+npm start -- --answer --execute --unit 1
+```
+
+- 中途想停，**另开一个** PowerShell 窗口敲：
+
+```powershell
+npm run stop
+```
+
+- 停了以后接着跑，直接重跑同一条命令就行（做过的会自动跳过）
+
+---
+
+## 3. 全部命令速查表
+
+### 3.1 开始用之前
+
+| 命令 | 干什么 |
+|---|---|
+| `npm install` | 装依赖。**第一次必做**，之后不用再跑 |
+| `npm run browser` | 打开专用 Edge。已开的话会复用，只补开缺的课程标签 |
+| `npm run setup` | 检测并保存登录状态 |
+| `npm run courses` | 看四门课填了没有，哪门能跑 |
+
+### 3.2 采集与查看
+
+| 命令 | 干什么 |
+|---|---|
+| `npm run crawl` | 采集课程目录、题干、控件，生成任务清单。**换书后必做** |
+| `npm run inventory` | 统计题型分布，生成报告 |
+| `npm run list` | 列出任务队列（序号 / 路径 / 题型 / 状态），不连浏览器 |
+| `npm start -- --list` | 同上，走 `npm start` 的筛选参数 |
+
+### 3.3 答题
+
+| 命令 | 干什么 |
+|---|---|
+| `npm start` | 预览模式，只生成计划不执行（默认就是预览，安全） |
+| `npm start -- --answer --execute` | 全自动答题 + 提交 |
+| `npm start -- --answer --execute --unit 3` | 只跑第 3 单元 |
+| `npm start -- --answer --execute --from-unit 3` | 从第 3 单元跑到最后 |
+| `npm start -- --answer --execute --type 翻译` | 只跑某一类题型 |
+| `npm start -- --answer --execute --steps 50` | 最多做 50 步就停 |
+| `npm start -- --answer --execute --current` | 只做当前打开的那一个任务 |
+
+### 3.4 体检与补做（强烈推荐用）
+
+| 命令 | 干什么 |
+|---|---|
+| `npm run audit-missing` | **体检**：按课程页真实状态列出还没完成的任务。有未完成时退出码为 1 |
+| `npm run fix-missing` | **补做**：体检完直接把这些任务重做一遍，跑完即止 |
+| `npm run audit -- 3` | 核验第 3 单元的提交证据与得分 |
+| `npm run verify -- --unit 3` | 核对课程侧保存的完成标记 |
+
+### 3.5 挂机刷学习时长
+
+| 命令 | 干什么 |
+|---|---|
+| `npm run watch` | 循环播 U1~U6 的 Preview，读学习时长，满 20 小时自动停 |
+| `npm run watch -- --check` | 只读一次当前时长就退出，用来确认能不能读到 |
+| `npm run watch -- --hours 25` | 目标改成 25 小时 |
+| `npm run watch -- --dwell-minutes 8` | 每个视频播完停留 8 分钟 |
+
+### 3.6 中途控制（另开一个窗口敲）
+
+| 命令 | 干什么 |
+|---|---|
+| `npm run pause` | 暂停。当前这一步做完后停住，不关浏览器 |
+| `npm run resume` | 解除暂停 |
+| `npm run stop` | 停止。保存进度后退出，等它退干净再重跑 |
+| `npm run skip` | 跳过当前这一题（有评论框的话会顺手填一句） |
+
+### 3.7 维护
+
+| 命令 | 干什么 |
+|---|---|
+| `npm test` | 跑单元测试，不碰课程页面。97 项全绿说明代码本身没坏 |
+| `npm run check` | 语法检查 |
+| `npm run reset -- --course course3` | 预览要清空的进度文件（**默认不动手**，加 `--yes` 才真清） |
+| `npm run video` | 排查用：看当前视频播到哪了 |
+
+---
+
+## 4. 新手最常用的三条命令
+
+如果只记三条，记这三条：
+
+```powershell
+npm run crawl          # ① 换书/首次用：采集任务清单
+npm run fix-missing    # ② 日常主力：体检 + 自动补做没完成的任务
+npm run watch          # ③ 时长不够时：挂机刷学习时长
+```
+
+日常循环就是：
+
+1. 跑 `npm run fix-missing`，让它自己找没做完的补上
+2. 跑完再跑一次 `npm run audit-missing` 看还剩多少
+3. 学习时长不够就 `npm run watch` 挂着
+4. 隔天再重复 1~2 步
+
+---
+
+## 5. 怎么换书 / 换课程
+
+### 情况 A：换同一门课里的另一册（比如从大英 2 换成大英 3）
+
+1. 用 Edge 登录，把这门课加到账号里
+2. 找到它的课程 ID（地址栏 `resource-detail/` 后面那串数字）
+3. 改 `config.json`：
+
+```json
+"activeCourse": "course3",
+"courses": {
+  "course3": {
+    "name": "大学英语 3",
+    "courseId": "你的新课程ID"
   }
 }
 ```
 
-`courseUrl` 里的 `{courseId}` 会自动替换，不用手改。
-
-### 5.4 切换课程
-
-三选一：
-
-```powershell
-# 改 config.json 的 activeCourse
-# 或命令行
-npm start -- --course course2
-# 或环境变量
-$env:UNIPUS_PROFILE = 'course4'; npm start
-```
-
-不确定哪门课填好了，运行：
+4. 确认能不能跑：
 
 ```powershell
 npm run courses
 ```
 
-四门课的采集数据、答题进度、日志分别存放在 `artifacts/course1/` ~ `artifacts/course4/`，互不覆盖。**新课程第一次使用必须重新跑一次 `npm run crawl`**，否则队列还是旧课程的。
+看到 `可运行：是` 就行。
 
-### 5.5 常用配置项
-
-| 配置 | 默认 | 说明 |
-|---|---|---|
-| `dryRun` | `true` | 只预览，不填写、不提交。确认流程无误后再改成 `false` 或加 `--execute`。 |
-| `incorrectChoiceRate` | `0.01` | 单选题改选其他有效选项的概率；设为 `0` 表示完全照模型答案。判断题不参与。 |
-| `throttle.actionDelayMs` | `[1800, 4500]` | 点击 / 拖拽 / 切页签之间的随机等待（毫秒）。 |
-| `throttle.fillDelayMs` | `[250, 600]` | 文本填写、下拉选择之间的随机等待。 |
-| `network.retries` | `2` | 连接浏览器、打开页面失败时的重试次数。 |
-| `answerLoop.maxStallRounds` | `3` | 连续无进展多少轮后判定卡住。 |
-| `answerLoop.maxRoundsPerTask` | `12` | 单个任务最多问多少轮。 |
-| `api.timeoutMs` | `120000` | 单次模型请求超时；长上下文或慢模型可调到 240000。 |
-| `api.maxOutputTokens` | `8192` | 单次回复上限；太小会被截断，太大不会变慢。 |
-| `api.temperature` | `0` | 0 最稳定；受支持的模型才发这个参数。 |
-| `api.responseFormat` | `json_object` | 服务不支持时自动降级为 `none`。 |
-| `api.imageDetail` | `auto` | 截图清晰度成本档位：`low` 更省、`high` 更准。 |
-| `runnerPolicy.taskFailure` | `continue` | 单任务出错后继续；改成 `stop` 恢复整体中断。 |
-| `learningPolicy.readingSeconds` | `10` | 阅读停留秒数。 |
-| `uiTexts` | 见模板 | 页面文案；平台改版时优先改这里。 |
-
-完整字段表、环境变量、`typeRules` 识别规则见 [docs/CONFIG.md](docs/CONFIG.md)。
-
-### 5.6 敏感信息
-
-- 账号、密码、cookie、token **一律不写进配置文件**，登录由专用 Edge 窗口完成。
-- API Key 只放在 `.env` 或系统环境变量里，`.env` 已被 `.gitignore` 排除；日志与报错里的 Key 会被替换成 `[REDACTED]`。
-- 登录态只保存在本机 `browser-profile/`，已被 `.gitignore` 排除。
-- `artifacts/` 含课程题干与截图，`logs/` 含运行记录，同样不要提交或打包分享。
-- `config.example.json` 不含任何真实课程 ID 或凭据。
-
----
-
-## 6. 使用
-
-### 6.1 首次运行
+5. **重新采集**（换了课程，旧的任务清单不能用了）：
 
 ```powershell
-npm run browser     # 打开专用 Edge，登录课程平台
-npm run setup       # 自动检测登录状态并保存会话
-npm run courses     # 确认目标课程已填写
-npm run crawl       # 采集必修任务清单（不答题、不提交）
-npm run inventory   # 生成题型报告
-npm run list -- --unit 1 --skip-banked-cloze   # 查看队列
-npm start -- --unit 1 --skip-banked-cloze      # 预览：只生成计划，不执行
+npm run crawl
+npm run inventory
 ```
 
-`npm run setup` 会一直等你在浏览器里完成登录，检测到课程页就绪后自动保存，不需要回终端按回车。
-
-### 6.2 正式答题
+6. 开始跑：
 
 ```powershell
-npm start -- --answer --execute --unit 1 --skip-banked-cloze --text-only --steps 100
+npm start -- --answer --execute --from-unit 1
 ```
 
-想从某个单元一路刷到最后一个单元，用 `--from-unit` 代替 `--unit`：
+### 情况 B：换一个完全不同的账号
 
 ```powershell
-npm start -- --answer --execute --from-unit 3 --skip-banked-cloze
+npm run reset -- --course course3      # 先看清要清什么
+npm run reset -- --course course3 --yes  # 确认清空
+npm run browser                        # 在弹出的窗口里退出登录，换新账号登
+npm run setup                          # 保存新登录态
+npm run crawl                          # 重新采集
 ```
 
-已完成的任务会自动跳过，所以中途停下重跑同一条命令就能接着来。
+### 情况 C：课程目录更新了（老师加了新任务）
 
-- `--answer`：走答题队列
-- `--execute`：真正填写和提交（去掉就是预览）
-- `--text-only`：不上传截图，只发文本和控件（更快；首次建议先带截图跑一遍确认）
-- `--steps`：本次最多执行多少步
-
-### 6.3 体检与补做
-
-按课程页真实状态看还差哪些：
+不用重装、不用改配置，只要：
 
 ```powershell
-npm run audit-missing    # 只体检，列出未完成任务，有未完成时退出码为 1
-npm run fix-missing      # 体检完直接补做，跑完即可
+npm run crawl      # 重新采集，认出新任务
+npm run fix-missing  # 补做新出现的
 ```
 
-体检读的是课程页的 `course_progress`，不是本地进度文件；课程页说过了就算过，
-本地记成 `learning` 也不会被翻出来重跑。补做范围也由体检结果决定，不会从第一个单元重新开始。
+### 情况 D：想换一个 API 服务商
 
-### 6.4 挂机刷必修学习时长
+只改 `.env` 三行，别的一律不动：
 
-教程成绩里必修学习时长有硬性要求时，用挂机脚本：
+```ini
+OPENAI_API_KEY=sk-新服务商的密钥
+OPENAI_MODEL=新服务商的模型名
+OPENAI_BASE_URL=新服务商的接口地址
+```
+
+改完直接跑，不用重新采集。
+
+### 想多门课并存
+
+`config.json` 里 `course1`~`course4` 四段可以同时填好，
+用 `activeCourse` 或者命令行参数切换，互不干扰：
 
 ```powershell
-npm run watch -- --check     # 先读一次当前时长，确认选择器还能对上
-npm run watch                # 正式开始挂机
-```
-
-脚本循环播放 U1~U6 的 Preview 板块，每个视频播完后在当前页停留 5 分钟；
-每轮开始前读一次「综合成绩」里的必修学习时长，满 20 小时自动退出。
-
-- `--hours 20`：目标时长
-- `--dwell-minutes 5`：每个视频播完后停留的分钟数
-- 出现「长时间无操作，学习已暂停」这类弹窗会自动点掉并继续播放
-- 进度写在 `artifacts/course3/watch-progress.json`，日志在 `watch.log`
-
-### 6.5 从指定任务继续
-
-先看队列序号：
-
-```powershell
-npm run list -- --course course3 --unit 3 --skip-banked-cloze
-```
-
-再从第 12 个任务开始，或按路径片段开始：
-
-```powershell
-npm start -- --answer --execute --course course3 --unit 3 --skip-banked-cloze --text-only --from 12
-npm start -- --answer --execute --course course3 --unit 3 --skip-banked-cloze --text-only --from "Section C/Translation/Task 1"
-```
-
-`--from` 只决定起点，不覆盖已有状态；要让之前跳过的任务重新执行，加 `--retry-skipped`。
-
-### 6.6 暂停、恢复、停止、跳过
-
-另开一个 PowerShell 窗口：
-
-```powershell
-npm run pause
-npm run resume
-npm run stop
-npm run skip
-```
-
-暂停会阻止后续动作，已发出的单次点击无法撤回。`stop` 之后重新运行前先执行 `npm run resume`。
-
-### 6.7 核验课程侧状态
-
-```powershell
-npm run verify -- --unit 3 --skip-banked-cloze --tasks 33,35,39
-npm run audit -- 3 --skip-banked-cloze
-```
-
-`verify` 复用原课件标签重新加载，读取页面正常请求的课程进度响应，按任务 URL 末端 ID 逐项核对，报告写入 `artifacts/<courseKey>/task-verification.json`。它不答题、不提交。
-
-全部命令与参数见 [docs/COMMANDS.md](docs/COMMANDS.md)。
-
----
-
-## 7. 目录结构
-
-```
-Unipus_deepseek/
-├─ config.example.json     # 四门课模板（占位符，可公开）
-├─ config.json             # 你的本地配置（gitignore）
-├─ .env.example            # 环境变量模板（Key、模型、接口地址）
-├─ .env                    # 你的 Key（gitignore）
-├─ package.json
-├─ src/
-│  ├─ runner.mjs           # 主入口：连接、计划、执行、队列
-│  ├─ api-planner.mjs      # OpenAI 兼容接口答题规划（截图 + 控件 → JSON）
-│  ├─ env.mjs              # .env 读取（不覆盖已有环境变量）
-│  ├─ deepseek-reply.mjs   # 网页端作答的回复解析（兼容旧模式）
-│  ├─ config.mjs           # 配置加载、合并、校验
-│  ├─ paths.mjs            # 统一路径
-│  ├─ net.mjs              # 超时、重试、随机延迟
-│  ├─ log.mjs              # 日志文件
-│  ├─ browser.mjs          # 启动 / 复用专用 Edge
-│  ├─ browser-session.mjs  # 标签选择、登录态检测
-│  ├─ crawl.mjs            # 必修目录采集
-│  ├─ answer.mjs           # 答题队列与提交核验
-│  ├─ learning.mjs         # 视频 / 阅读 / 词汇学习
-│  ├─ core.mjs             # 计划校验、提交控件识别
-│  ├─ choice.mjs           # 选择题执行
-│  ├─ policy.mjs           # 运行策略
-│  ├─ queue.mjs            # 任务筛选
-│  ├─ result.mjs           # 答题小结解析
-│  ├─ inventory-report.mjs # 题型报告
-│  ├─ verify-tasks.mjs     # 课程侧核验
-│  ├─ audit-unit.mjs       # 单元审计
-│  ├─ control.mjs          # 暂停 / 恢复 / 停止 / 跳过
-│  └─ ...
-├─ test/                   # node:test 单元测试
-├─ docs/
-│  ├─ CONFIG.md            # 配置字段说明
-│  └─ COMMANDS.md          # 命令与参数
-├─ artifacts/              # 运行产物（gitignore）
-├─ logs/                   # 日志（gitignore）
-└─ browser-profile/        # 专用 Edge 用户数据（gitignore）
+npm start -- --answer --execute --course course2
 ```
 
 ---
 
-## 8. 日志与产物
+## 6. 支持哪些题型
 
-| 路径 | 内容 |
+| 题型 | 怎么做 |
 |---|---|
-| `logs/run-YYYY-MM-DD.log` | 运行日志：课程、连接、重试、失败原因 |
-| `artifacts/<courseKey>/inventory/` | 该课程的必修清单、题干、控件快照、题型报告 |
-| `artifacts/<courseKey>/answer-progress.json` | 每任务状态：`submitted` / `learned` / `skipped` / `failed` |
-| `artifacts/<courseKey>/checkpoint.json` | 断点与最近动作历史 |
-| `artifacts/<courseKey>/events.jsonl` | 步骤级事件 |
-| `artifacts/<courseKey>/answer-rounds.jsonl` | 每轮答题诊断（轮次、是否卡住、提交） |
-| `artifacts/<courseKey>/last-run-summary.json` | 本次结束时仍未完成的任务 |
-| `artifacts/<courseKey>/failure*.json` | 出错时的现场快照 |
+| 选择题 | 模型选答案，点选项，提交 |
+| 单词 / 短语填空 | 模型填，写进输入框，提交 |
+| 选词完形填空（Banked cloze） | 逐个空下拉选择 |
+| 三项判断（True / False / Not given） | 按题判断逐题点 |
+| 翻译 | 模型给译文，填进输入框 |
+| 句型改写 / 完成句子 | 模型写，填进去 |
+| 开放问答 / 讨论 | 模型写一段，提交 |
+| 音视频学习 | 正常速度播完，不拖进度条 |
+| 阅读材料 | 停留规定秒数 |
+| 词汇卡片 | 逐张点"下一个" |
+| 评论 / 讨论区 | 自动发一句（默认 `666`，可在 `config.json` 改 `commentReply`） |
+| Unit project（作品上传） | 上传 `uploadFile` 指定的文件后提交 |
+| Review & check（复习自检） | 逐项打勾 |
 
-`submitted` 表示已看到答题小结，`learned` 表示学习动作已执行，两者都不等于课程侧已确认完成；需要以 `npm run verify` 或课程页面为准。
-
----
-
-## 9. 已知限制
-
-1. 题型识别依赖页面结构和文案。平台改版后可能需要更新 `uiTexts` 或 `typeRules`。
-2. 自定义单选组件、拖拽题的浏览器实现差异较大，个别题型可能需要在 `--list` 里确认分类后再处理。
-3. `finished=true` 只是模型的判断，脚本仍要求答题小结或人工核验，不会仅凭模型声明标记完成。
-4. 视频按正常速度播放，长视频会占用与视频时长相当的时间。
-5. 脚本不模拟浏览器指纹，也不改动页面之外的任何请求；所有操作都通过页面正常控件完成。
-6. 未在所有学校、所有课程版本上验证；第一次用于新课程时，建议先用 `dryRun` 预览。
+遇到认不出结构的页面，会记成"阅读或尚未识别的交互"，按阅读任务处理（停留后翻页），不会卡死。
 
 ---
 
-## 10. 常见问题
+## 7. 出问题了怎么办
 
-**Q：提示“无法连接现有 Edge”？**
-先运行 `npm run browser`，等窗口出现后再运行其他命令。脚本不会自己拉起浏览器。
+### 提示"登录态已失效"
 
-**Q：提示登录已过期？**
-在专用 Edge 的原课程标签里重新登录，再运行命令。脚本不会自动填写账号密码。
+登录过期了。做法：
 
-**Q：`npm run courses` 显示“未填写”？**
-对应分组的 `courseId` 还是占位符，或 `courseUrl` 里仍留着 `{courseId}` 没被替换。
+```powershell
+npm run browser     # 在弹出来的窗口里重新登录，进到课程页
+npm run setup       # 保存
+```
 
-**Q：换了课程，队列还是旧的？**
-每门课的清单在 `artifacts/<courseKey>/inventory/`，新课程要先 `npm run crawl`。
+然后重跑刚才的命令。
 
-**Q：`npm run list` 说没有任务？**
-检查 `--unit` / `--type` / `--from` / `--skip-banked-cloze` 的组合，以及是否已经采集过该课程。
+### 提示"API 连接失败"或 401
 
-**Q：某道题一直不提交？**
-看 `answer-rounds.jsonl` 里的 `stalled` 记录。脚本连续 `maxStallRounds` 轮没有进展时会尝试兜底提交，否则带原因停止。用 `--from` 从该任务重跑即可。
+`.env` 三行没填对。逐项检查：
 
-**Q：中途 Ctrl+C 了怎么办？**
-进度在 `answer-progress.json` 里，直接重跑；或先 `npm run resume` 清掉停止标记。
+- `OPENAI_API_KEY` 有没有粘全（别带空格、别带引号）
+- `OPENAI_BASE_URL` 是不是服务商给的那个（有的要带 `/v1`，有的不带）
+- `OPENAI_MODEL` 名字对不对（必须支持看图）
 
-**Q：`npm test` 报 `EPERM`？**
-个别受限环境不允许测试进程用管道启动子进程。可以逐个文件运行：`node test/core.test.mjs`。
+单独验证一下：
 
-**Q：能不能把 `artifacts/` 发给别人？**
-不建议。里面有课程题干和截图，属于你的学习数据。
+```powershell
+node -e "console.log(process.env.OPENAI_API_KEY ? 'key 读到了' : 'key 没读到')"
+```
+
+### 提示"API 输出被截断"
+
+答案太长或思考太长。脚本会自动把上限翻倍重试一次；
+还是不行就换一个不"深度思考"的模型，或者在 `config.json` 里调大：
+
+```json
+"api": { "maxOutputTokens": 16384 }
+```
+
+### 提示"上下文过长"
+
+同样会自动压缩输入并重试，通常能自己救回来。反复出现说明这道题题干特别长，
+可以在 `config.json` 里把 `api.maxInputChars` 调小一点（比如 `80000`）。
+
+### 卡在某个任务不动
+
+在另一个窗口：
+
+```powershell
+npm run skip     # 跳过这一题
+```
+
+或者
+
+```powershell
+npm run stop     # 整个停掉
+npm start -- --answer --execute --from-unit 3   # 从第 3 单元重来
+```
+
+重跑不会重复做已完成的任务。
+
+### 提示"弹窗遮挡"
+
+页面弹了"我知道了"这类提示框，脚本会自动点掉。如果反复卡住，
+手动在 Edge 窗口里点掉它再继续。
+
+### 一次跑了很久没动静
+
+检查那个专用 Edge 窗口是不是被最小化或关了。**必须保持窗口开着**，
+最小化可以，但不能关。
+
+### 想从头再来
+
+```powershell
+npm run reset -- --course course3          # 先看要清什么
+npm run reset -- --course course3 --yes    # 确认
+npm run crawl                              # 重新采集
+```
 
 ---
 
-## 11. 免责声明
+## 8. 文件都是干什么的
 
-- 本项目仅用于**个人学习辅助**，用于减少重复的页面操作。请遵守所在学校的课程规定、学术诚信要求和平台用户协议。
-- 使用者应自行确认使用方式是否被所在课程允许。因使用本工具产生的任何后果（包括但不限于成绩、纪律处分、账号状态），由使用者自行承担。
-- 本项目按“现状”提供，不保证答案正确、不保证得分、不保证课程侧一定记录为完成，也不对平台改版后的可用性作任何承诺。
-- 本项目不收集、不上传、不存储你的账号密码；登录态和运行数据都留在本机。请勿把 `config.json`、`browser-profile/`、`artifacts/`、`logs/` 提交到公开仓库或分享给他人。
-- 作者不对第三方平台（U 校园、所选模型服务商等）的服务变更、封禁或数据丢失负责。
+```
+├─ src\                  程序本体（不用改）
+├─ test\                 单元测试（不用管）
+├─ docs\                 细一点的说明文档
+├─ config.json           ★ 你的课程配置（自己填，别外传）
+├─ .env                  ★ 你的 API 密钥（自己填，别外传）
+├─ config.example.json   配置模板
+├─ .env.example          密钥模板
+├─ browser-profile\      专用 Edge 的登录态（自动生成，别外传）
+├─ artifacts\            采集结果、进度、截图（自动生成）
+└─ logs\                 运行日志（自动生成）
+```
+
+**带 ★ 的三个（`config.json`、`.env`、`browser-profile\`）包含你的私人信息，
+不要发给任何人，也不要上传到网盘。**
+
+进度文件在 `artifacts\<课程>\answer-progress.json`，删掉它就等于这门课从头开始。
 
 ---
 
-## 12. 许可证
+## 9. 配置项改哪里
 
-本项目基于 [MIT License](LICENSE) 开源。你可以自由使用、修改、分发，但需保留版权声明与许可声明。使用前请把 `LICENSE` 里的 `<YOUR NAME>` 替换为你的名字或组织名。
+90% 的情况只需要改 `config.json` 里这几项：
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `activeCourse` | `course1` | 当前跑哪门课 |
+| `courses.<名字>.courseId` | 空 | 课程 ID（必填） |
+| `courses.<名字>.unitCount` | `6` | 这门课有几个单元 |
+| `learningPolicy.commentReply` | `666` | 讨论区自动发的内容 |
+| `learningPolicy.uploadFile` | 空 | 作品上传用哪个文件 |
+| `learningPolicy.readingSeconds` | `10` | 阅读任务停留几秒 |
+| `incorrectChoiceRate` | `0.15` | 故意选错的概率（让答题记录更像真人） |
+| `throttle.actionDelayMs` | `[1800, 4500]` | 每步随机等待的毫秒区间 |
+| `maxSteps` | `1200` | 一次运行最多做多少步 |
+
+更细的配置看 `docs/CONFIG.md`，命令细节看 `docs/COMMANDS.md`。
+
+---
+
+## 10. 它是怎么工作的（技术向，可以跳过）
+
+想改代码或者排查问题时看这段。
+
+```
+npm run crawl
+   └─ 用 CDP 连上专用 Edge，逐个点开课程目录
+      ├─ 记录每个必修任务的 URL、题干文本、可交互控件（输入框 / 选项 / 按钮）
+      └─ 存成 artifacts/<课程>/inventory/required-tasks.json + type-report.json
+
+npm start -- --answer --execute
+   └─ 按任务清单逐个打开页面
+      ├─ 截图 + 抽控件树 → 发给大模型（OpenAI 兼容接口，每次请求独立，不带历史）
+      ├─ 模型返回结构化动作（选哪个选项 / 往哪个框填什么）→ 在页面上执行
+      ├─ 提交后记录到 answer-progress.json
+      └─ 判断"卡住"：连续几轮页面没变化就换策略或跳过
+
+npm run audit-missing
+   └─ 刷新一次课件页，拦截它自己发出的 course_progress 请求
+      └─ 拿 6 个单元的真实 pass 状态，和本地进度对比出差异
+
+npm run watch
+   └─ 循环播 Preview → 读「综合成绩」页的必修学习时长 → 达标退出
+```
+
+几个设计上的取舍：
+
+| 做法 | 原因 |
+|---|---|
+| 每次请求都不带对话历史 | 题目之间没有关联，带历史只会让上下文爆掉 |
+| 输入超预算时分级压缩（5 档） | 长题干 + 大量选项很容易超过上下文上限 |
+| 输出被截断时自动翻倍重试一次 | 推理型模型会把预算花在"思考"上 |
+| 课程侧状态优先于本地进度 | 本地记着 `learning` 但课程页已通过的，不该重做 |
+| 超过 3 轮页面无变化就判定卡住 | 避免死循环点同一个按钮 |
+| 每步随机等待 1.8~4.5 秒 | 让操作节奏接近真人 |
+
+主要模块：
+
+| 文件 | 职责 |
+|---|---|
+| `src/runner.mjs` | 入口，参数解析与流程编排 |
+| `src/answer.mjs` | 答题队列主循环、卡住检测、各类题型分发 |
+| `src/api-planner.mjs` | 大模型调用、输入压缩、动作解析 |
+| `src/crawl.mjs` | 课程目录与任务清单采集 |
+| `src/course-progress.mjs` | 读课程侧真实完成状态 |
+| `src/audit.mjs` | 体检报告 |
+| `src/upload.mjs` / `src/checklist.mjs` / `src/comment.mjs` | 作品上传 / 自评打勾 / 讨论区 |
+| `src/watch.mjs` | 挂机刷时长 |
+| `src/config.mjs` | 配置合并与校验 |
+
+---
+
+## 11. 使用须知
+
+- 本工具只在**你自己的账号**上操作，请勿用于他人账号。
+- 请自行确认所在学校/课程对自动化工具的规定，使用者承担使用后果。
+- 软件按现状提供，学到的知识才是自己的——工具只是帮你省下重复劳动的时间。
+- 遇到问题先看第 7 节，再看 `logs\` 里的日志，日志里通常写清了卡在哪一步。
+
+---
+
+MIT License
