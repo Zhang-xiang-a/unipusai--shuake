@@ -57,6 +57,37 @@ export async function crawlRequired({context, overview, solver, config, output, 
     const here = overview.url().slice(0, 110);
     const bodyTail = await overview.evaluate(() =>
       String(document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 160)).catch(() => '');
+    // U校园对「这个 courseId 我不认识」和「你没登录」给的是同一句「登录过期，请重新登录」。
+    // 光看页面文字分不出来，但门户首页的 localStorage 里有没有 __token 能分：
+    // 有 __token 说明登录好好的，那问题一定在这个 ID 上。
+    const hasToken = await overview.evaluate(() => {
+      try { return !!localStorage.getItem('__token'); } catch { return false; }
+    }).catch(() => false);
+    let portalCourses = '';
+    try {
+      const portal = await context.newPage();
+      await portal.goto('https://uai.unipus.cn/portal', {waitUntil: 'domcontentloaded', timeout: 25000});
+      await wait(4000);
+      portalCourses = await portal.evaluate(() => {
+        const m = String(document.body.innerText || '').match(/我的教程([\s\S]{0,120})/);
+        return m ? m[0].replace(/\s+/g, ' ').slice(0, 120) : '';
+      });
+      await portal.close();
+    } catch { /* 门户打不开就按未登录处理，下面的提示仍然成立 */ }
+    if (hasToken) {
+      throw new Error([
+        '这个 courseId 打不开：登录是好的，问题在 ID 上。',
+        `  courseId：${config.course?.courseId}`,
+        `  当前地址：${here}`,
+        portalCourses ? `  你账号下能看到的课程：${portalCourses}` : '',
+        '',
+        'U校园对「课程不存在 / 无权访问」返回的也是「登录过期，请重新登录」，',
+        '所以这个提示会把人引到登录方向，实际是 ID 填错了。',
+        '做法：在专用 Edge 里登录后，点进要跑的那门课，',
+        '      地址栏里 resource-detail/ 后面那串数字就是正确的 courseId，',
+        '      填到 config.json 的 courses.<课程>.courseId，再重跑 npm run crawl。',
+      ].filter(Boolean).join('\n'));
+    }
     throw new Error([
       '在课程目录页没找到单元页签，无法确认必修范围。',
       `  当前地址：${here}`,
