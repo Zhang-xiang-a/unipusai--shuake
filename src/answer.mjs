@@ -80,6 +80,16 @@ export async function loadAnswerQueue({output, argv = process.argv, unitCount = 
     queue=queue.filter(t=>t.unit>=fromUnit);
     if(unit===null)unit=fromUnit;
   }
+  // --only-missing：只处理本地进度里还没完成的任务，用于补漏。
+  if(argv.includes('--only-missing')) {
+    let progress={tasks:{}};
+    try { progress=JSON.parse(await fs.readFile(path.join(output,'answer-progress.json'),'utf8')); }
+    catch(error) { if(error.code!=='ENOENT')throw error; }
+    const done=new Set(['submitted','learned']);
+    const before=queue.length;
+    queue=queue.filter(t=>!done.has(progress.tasks?.[t.key]?.status));
+    console.log(`--only-missing：${before} 个任务中已完成 ${before-queue.length} 个，本次处理 ${queue.length} 个`);
+  }
   return {queue,unit,inventory};
 }
 

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import {parsePlan, validatePlan, varyChoice, normalizeFillPlan, actionDelayRange, isUnusableReply, describePlanFailure} from './core.mjs';
 import {crawlRequired} from './crawl.mjs';
 import {answerQueue, loadAnswerQueue} from './answer.mjs';
+import {auditQueue, formatAudit} from './audit.mjs';
 import {formatQueue} from './queue.mjs';
 import {muteCourse} from './mute.mjs';
 import {DeepSeekReplyError, runnerPolicy} from './policy.mjs';
@@ -22,8 +23,8 @@ const argv = process.argv;
 // 拼错开关（--excute / --exectue）以前会被静默忽略，于是 dryRun 保持 true，
 // 看起来像「跑起来了但什么都没做」。这里直接拦下并给出近似建议。
 const KNOWN_FLAGS = new Set([
-  '--all','--answer','--course','--courses','--crawl','--current','--depth','--dry-run','--execute',
-  '--from','--from-task','--from-unit','--inspect','--list','--new-chat','--retry-skipped','--setup',
+  '--all','--answer','--audit','--course','--courses','--crawl','--current','--depth','--dry-run','--execute','--fix',
+  '--from','--from-task','--from-unit','--inspect','--list','--new-chat','--only-missing','--retry-skipped','--setup',
   '--skip-banked-cloze','--steps','--tasks','--text-only','--type','--unit','--yes','--help',
 ]);
 function suggestFlag(flag) {
@@ -93,14 +94,14 @@ const output = courseOutputDir(config.course.key);
 const coursewareHost = (config.login?.courseHosts || []).find(host => /ucontent/i.test(host)) || 'ucontent.unipus.cn';
 // 队列筛选参数只在答题模式生效，漏加 --answer 时明确提示，避免在目录页空转。
 // --list / --inspect / --crawl 等一次性命令本身就会读队列，不需要这条提醒。
-const oneShotCommand = ['--list','--inspect','--crawl','--courses','--setup'].some(flag => argv.includes(flag));
+const oneShotCommand = ['--list','--audit','--fix','--inspect','--crawl','--courses','--setup'].some(flag => argv.includes(flag));
 if (!oneShotCommand && !argv.includes('--answer') && argv.some(arg => ['--unit','--from-unit','--type','--skip-banked-cloze','--from','--current','--retry-skipped'].includes(arg))) {
   console.log('提示：--unit / --from-unit / --type / --skip-banked-cloze / --from / --current / --retry-skipped 只在 --answer 模式下生效。');
   console.log('      当前是通用导航模式，不会读任务队列；要按队列答题请加 --answer。');
 }
 logger.info(`启动：${describeCourse(config.course)}，dryRun=${config.dryRun}，输出目录 ${output}`);
 await fs.mkdir(output, {recursive: true});
-if (argv.includes('--list')) {
+if (argv.includes('--list') || argv.includes('--audit')) {
   // 只读队列，不连接浏览器、不占用 runner.lock。
   let queue;
   try { ({queue} = await loadAnswerQueue({output, argv})); }
@@ -113,9 +114,26 @@ if (argv.includes('--list')) {
   let progress = {tasks:{}};
   try { progress = JSON.parse(await fs.readFile(path.join(output,'answer-progress.json'),'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   console.log(`当前课程：${config.course.label}（${config.course.key}）`);
-  console.log(formatQueue(queue, progress));
-  console.log('\n用 --from <序号或路径片段> 从其中某个任务开始，例如：node src/runner.mjs --answer --execute --unit 3 --from "Section C/Translation/Task 1"');
-  process.exit(0);
+  if (argv.includes('--audit')) {
+    const report = auditQueue(queue, progress);
+    console.log(formatAudit(report));
+    await fs.writeFile(path.join(output, 'audit.json'), JSON.stringify({
+      course: config.course.key,
+      checkedAt: new Date().toISOString(),
+      total: report.total,
+      done: report.done.length,
+      pending: report.pending.map(t => ({key: t.key, unit: t.unit, path: t.path, type: t.type || '',
+        status: progress.tasks?.[t.key]?.status || '', reason: progress.tasks?.[t.key]?.reason || ''})),
+    }, null, 2));
+    if (!argv.includes('--fix')) process.exit(report.pending.length ? 1 : 0);
+    if (!report.pending.length) process.exit(0);
+    console.log('\n开始补做未完成的任务…');
+    argv.push('--answer', '--execute', '--only-missing');
+  } else {
+    console.log(formatQueue(queue, progress));
+    console.log('\n用 --from <序号或路径片段> 从其中某个任务开始，例如：node src/runner.mjs --answer --execute --unit 3 --from "Section C/Translation/Task 1"');
+    process.exit(0);
+  }
 }
 const lockFile=path.join(output,'runner.lock');
 try {

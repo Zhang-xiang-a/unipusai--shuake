@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {apiSettings, buildApiMessages, chatEndpoint, createApiPlanner, redactApiText} from '../src/api-planner.mjs';
+import {apiSettings, buildApiMessages, chooseCompression, chatEndpoint, createApiPlanner, redactApiText} from '../src/api-planner.mjs';
 
 const CONFIG = (overrides = {}) => ({
   api: {baseUrl: 'https://api.example.com/v1', model: 'vision-model', keyEnv: 'TEST_KEY', ...overrides},
@@ -120,6 +120,39 @@ test('buildApiMessages 裁剪控件字段并按上限截断参考原文', () => 
   assert.equal(userState.controls[0].extra, undefined, '未登记字段不应发给模型');
   assert.equal(userState.controls[0].id, 'a1');
   assert.equal(userState.referenceTexts[0].text.length, 500);
+});
+
+test('输入超预算时逐级压缩，而不是整道题失败', () => {
+  const settings = apiSettings(CONFIG({maxInputChars: 20000}), ENV);
+  const oversized = {
+    ...STATE,
+    text: '阅读原文'.repeat(30000),
+    controls: Array.from({length: 30}, (_, i) => ({id: String(i), tag: 'textarea', text: `第${i}空`, context: '上下文'.repeat(500)})),
+    referenceTexts: [{path: 'Reading the text', text: 'r'.repeat(12000)}],
+  };
+  const messages = buildApiMessages({state: oversized, nonce: 'n-big', config: CONFIG(), settings, image: null});
+  assert.ok(messages.compression.level > 0, '超预算时应当提高压缩级别');
+  assert.ok(messages.compression.chars <= 20000, `压缩后仍超预算：${messages.compression.chars}`);
+  assert.match(messages[1].content[0].text, /输入已压缩到第 \d+ 级/);
+  // 控件本身必须保留，否则模型无法作答。
+  const userState = JSON.parse(messages[1].content[0].text.slice(messages[1].content[0].text.indexOf('{')));
+  assert.equal(userState.controls.length, 30);
+  assert.ok(userState.controls.every(c => c.id !== undefined));
+});
+
+test('预算充足时保持第 0 级，题干和参考原文都不动', () => {
+  const settings = apiSettings(CONFIG(), ENV);
+  const {level, userState, chars} = chooseCompression({state: STATE, settings});
+  assert.equal(level, 0);
+  assert.equal(userState.textTruncated, false);
+  assert.ok(chars <= settings.maxInputChars);
+  assert.equal((userState.referenceTexts || []).length, (STATE.referenceTexts || []).length);
+});
+
+test('服务端报上下文过长时可以直接从更狠的级别开始', () => {
+  const settings = apiSettings(CONFIG(), ENV);
+  const {level} = chooseCompression({state: STATE, settings, startLevel: 3});
+  assert.equal(level, 3);
 });
 
 // ---------- createApiPlanner ----------

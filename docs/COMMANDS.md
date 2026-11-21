@@ -19,6 +19,8 @@
 | `npm run skip` | 请求跳过当前子任务。若页面有评论输入框会填入 `6666`，不自动发布评论。 |
 | `npm run verify -- --unit 3 --tasks 33,35,39` | runner 结束后核对课程侧保存的任务完成标记。不答题、不提交。 |
 | `npm run audit -- 3 --skip-banked-cloze` | 核验第三单元的提交证据、学习执行情况与得分。 |
+| `npm run audit-missing` | 必修任务体检：列出所有还没完成的任务（未开始 / 失败 / 中断），按单元分组。只读进度文件，不开浏览器。有未完成时退出码为 1。 |
+| `npm run fix-missing` | 体检后自动补做未完成的任务，跑完即可。等价于 `npm start -- --audit --fix`。 |
 | `npm run reset -- --course course3` | 预览要归档的进度文件；加 `--yes` 才归档并清空。换账号、换课程、想从头重刷时用。默认保留 `inventory/` 任务清单，加 `--all` 连清单一起归档。 |
 | `npm test` | 运行项目测试，不接触课程页面。 |
 | `npm run check` | 对全部源文件做 `node --check` 语法检查。 |
@@ -32,6 +34,8 @@
 | `--execute` | 实际填写、点击和提交；不加则只预览。 |
 | `--unit 3` | 只处理指定单元，上限由当前课程的 `unitCount` 决定。 |
 | `--from-unit 3` | 从第 3 个单元一路处理到最后一个单元，不用逐个 `--unit` 切换。与 `--unit` 互斥（数字相同则等价）。 |
+| `--only-missing` | 只处理本地进度里还没完成的任务（不是 `submitted` / `learned`），用于补漏。 |
+| `--audit` | 只体检不答题：列出未完成任务后退出。加 `--fix` 则体检完直接补做。 |
 | `--type 翻译` | 只处理指定题型，名称需与 `npm run inventory` 报告一致。 |
 | `--skip-banked-cloze` | 排除选词完形（Banked cloze）。 |
 | `--retry-skipped` | 重新尝试本次筛选范围内记录为 `skipped` 的任务；已提交和已学习的任务仍保留。 |

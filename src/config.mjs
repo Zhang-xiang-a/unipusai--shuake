@@ -32,6 +32,8 @@ export const DEFAULTS = {
     responseFormat: 'json_object',
     imageDetail: 'auto',
     maxReferenceChars: 6000,
+    // 单次请求允许的输入字符数；超过就按级别裁剪页面正文、控件上下文和参考原文。
+    maxInputChars: 120000,
     temperature: 0,
   },
   deepseek: {
