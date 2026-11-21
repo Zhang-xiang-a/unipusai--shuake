@@ -197,6 +197,27 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     await dismiss();
     // 登录过期时页面会被踢到 SSO，后面所有点击都会超时，这里提前给出可读原因。
     if(isLoginPage(page,{ssoHost:course.login?.ssoHost}))throw new Error('课程标签已跳到登录页，登录态失效：请在专用 Edge 里重新登录后重跑');
+    // 导航按钮被弹窗遮挡是这类课程页最常见的中断原因：
+    // 三层兜底——先清弹窗，仍被挡就再清一次重试，最后强制点击并把弹窗原文打出来。
+    const clickGuarded=async(target,{label:what='控件',timeout=8000}={})=>{
+      await dismiss();
+      try { await target.click({timeout}); return; }
+      catch(firstError) {
+        const modalText=await page.evaluate(()=>{
+          const wrap=document.querySelector('.ant-modal-wrap');
+          if(!wrap)return '';
+          if(wrap.getBoundingClientRect().height<=0)return '';
+          return String(wrap.innerText||'').replace(/\s+/g,' ').trim().slice(0,200);
+        }).catch(()=> '');
+        await dismiss(); await wait(600);
+        try { await target.click({timeout}); return; }
+        catch {
+          if(isLoginPage(page,{ssoHost:course.login?.ssoHost}))throw new Error('登录态已失效（页面被跳到登录页）：请在专用 Edge 里重新登录后重跑');
+          await target.click({timeout:Math.min(timeout,5000),force:true});
+          console.log(`${tag} ${what}被弹窗遮挡，已强制点击${modalText?`（弹窗内容：${modalText}）`:''}`);
+        }
+      }
+    };
     if(!currentOnly) {
     const menus=await page.locator('.pc-menu-node-name').evaluateAll(es=>es.map((e,index)=>{
       let section='',unit='';
@@ -210,31 +231,20 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     const target=menus.filter(m=>m.unit===t.unit&&m.section===t.path[0]&&m.name===t.path[1]);
     if(target.length!==1)throw new Error('无法唯一定位任务菜单 '+t.key);
     await page.locator('#root-loading').waitFor({state:'hidden',timeout:15000});
-    await dismiss();
-    const menuItem=page.locator('.pc-menu-node-name').nth(target[0].index);
-    try {
-      await menuItem.click({timeout:5000});
-    } catch(firstError) {
-      // 弹窗遮挡、页面还在跳转、或登录态失效都会走到这里：清一次弹窗再试一次。
-      await dismiss();
-      await wait(800);
-      try { await menuItem.click({timeout:8000}); }
-      catch {
-        if(isLoginPage(page,{ssoHost:course.login?.ssoHost}))throw new Error('登录态已失效（页面被跳到登录页）：请在专用 Edge 里重新登录后重跑');
-        throw new Error(`点击课程目录项超时，多半被弹窗遮挡或页面未就绪：${String(firstError.message).split('\n')[0]}`);
-      }
-    }
+    await clickGuarded(page.locator('.pc-menu-node-name').nth(target[0].index),{label:'课程目录项'});
     await wait(1500);await dismiss();
     const tab=page.locator('.pc-tab-view-container').getByText(t.path[2],{exact:true});
     // Match rendered titles exactly to avoid Critical thinking / skill ambiguity.
     const tabs=page.locator('.pc-tab-view-container');
     const tabIndex=(await tabs.allTextContents()).findIndex(x=>x.trim()===t.path[2]);
     if(tabIndex<0)throw new Error('任务页签不存在');
-    await tabs.nth(tabIndex).click();await wait(1500);await dismiss();
+    await clickGuarded(tabs.nth(tabIndex),{label:'任务页签'});
+    await wait(1500);await dismiss();
     const tasks=page.locator('.pc-task');
     const taskIndex=(await tasks.allTextContents()).findIndex(x=>x.trim()===t.path.at(-1));
     if(taskIndex<0)throw new Error('任务入口不存在');
-    await tasks.nth(taskIndex).click();await wait(1500);
+    await clickGuarded(tasks.nth(taskIndex),{label:'任务入口'});
+    await wait(1500);
     }
     await dismiss(); await wait(500);
     // 单个任务内部的异常在下面统一兜住：记录 failed 后继续下一个任务，
