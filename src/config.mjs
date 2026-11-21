@@ -347,10 +347,15 @@ export function listCourses(raw) {
   const courses = raw.courses || {};
   return Object.keys(courses).map(key => {
     const course = resolveCourse(raw, key);
+    // 地址里真正生效的是 courseResourceId（没填才退回 courseId），
+    // 两个数不一样时只显示 courseId 会让人以为地址拼错了。
+    const resourceId = course.courseResourceId || course.courseId;
     return {
       key,
       label: course.label,
       courseId: isPlaceholder(course.courseId) ? '（未填写）' : course.courseId,
+      courseResourceId: course.courseResourceId || '',
+      resourceId: isPlaceholder(resourceId) ? '' : resourceId,
       unitCount: course.unitCount,
       answerSource: course.answerSource,
       ready: !isPlaceholder(course.courseId) && !/\{courseId\}/.test(course.courseUrl),

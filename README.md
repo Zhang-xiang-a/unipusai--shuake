@@ -442,6 +442,45 @@ npm start -- --answer --execute --course course2
 
 ## 7. 出问题了怎么办
 
+### 换课：`npm run switch`
+
+不用手改配置。跑这个命令，它会问你要哪本书：
+
+```powershell
+npm run switch
+```
+
+```
+课程资源 ID 表（来自 courses.txt）：
+
+  1) 大学英语 1  20000117556
+  2) 大学英语 2  20000117557
+  3) 大学英语 3  20001277967  ← 当前
+  4) 大学英语 4  （ID 未填写）
+
+这次要跑哪本书？输入序号或书名（直接回车取消）：
+```
+
+输入序号、`course2`、`大学英语 2`、`大英2`、`大三` 都能认。回车取消，改配置前自动备份成 `config.json.bak`。
+
+换完接着跑：
+
+```powershell
+npm run crawl        # 换了课必须重新采集
+npm run fix-missing  # 开始答题
+```
+
+**ID 只改 `courses.txt` 这一个文件**，格式是 `分组 | 书名 | 课程资源 ID`：
+
+```
+course1 | 大学英语 1 | 20000117556
+course2 | 大学英语 2 | 20000117557
+course3 | 大学英语 3 | 20001277967
+course4 | 大学英语 4 |
+```
+
+某门课 ID 空着时选它会提示你先去地址栏抄一个，不会把空值写进配置。
+
 ### courseId 和 courseResourceId 的区别
 
 U 校园的课程入口是：

@@ -75,9 +75,14 @@ if (argv.includes('--courses')) {
   if (!rows.length) throw new Error('config.json 里没有 courses 分组，请对照 config.example.json 补全');
   console.log('config.json 中的课程分组：');
   for (const row of rows) {
-    console.log(`  ${row.key}  ${row.label}  courseId=${row.courseId}  ${row.unitCount} 个单元  ${row.answerSource}  ${row.ready ? '可运行' : '待填写'}`);
+    // 只显示 courseId 会误导：地址拼的是 courseResourceId，两个数可能不一样。
+    const idText = row.courseResourceId && row.courseResourceId !== row.courseId
+      ? `courseId=${row.courseId}  地址用=${row.resourceId}`
+      : `courseId=${row.courseId}`;
+    console.log(`  ${row.key}  ${row.label}  ${idText}  ${row.unitCount} 个单元  ${row.answerSource}  ${row.ready ? '可运行' : '待填写'}`);
   }
   console.log('\n用 activeCourse 或 --course course2 切换课程，无需改代码。');
+  console.log('换课时也可以直接跑 npm run switch，它会问你要哪本书并自动改配置。');
   process.exit(0);
 }
 

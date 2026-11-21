@@ -20,6 +20,8 @@
     "crawl": "node src/runner.mjs --crawl",
     "list": "node src/runner.mjs --list",
     "courses": "node src/runner.mjs --courses",
+    "book": "node src/switch-course.mjs",
+    "switch": "node src/switch-course.mjs",
     "check": "node --check src/runner.mjs && node --check src/crawl.mjs && node --check src/browser.mjs && node --check src/browser-session.mjs && node --check src/answer.mjs && node --check src/core.mjs && node --check src/queue.mjs && node --check src/policy.mjs && node --check src/deepseek-reply.mjs && node --check src/choice.mjs && node --check src/task-progress.mjs && node --check src/verify-tasks.mjs && node --check src/config.mjs && node --check src/log.mjs && node --check src/net.mjs && node --check src/paths.mjs && node --check src/inventory-report.mjs && node --check src/api-planner.mjs && node --check src/env.mjs && node --check src/learning.mjs && node --check src/control.mjs && node --check src/comment.mjs && node --check src/audit.mjs && node --check src/upload.mjs && node --check src/checklist.mjs && node --check src/watch.mjs && node --check src/watch-lib.mjs",
     "verify": "node src/verify-tasks.mjs",
     "reset": "node src/reset.mjs",
