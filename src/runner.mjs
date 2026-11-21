@@ -60,6 +60,12 @@ if (unknownFlags.length) {
   process.exit(1);
 }
 
+// --fix 等价于「先体检，再补做未完成的任务」。必须在加载配置之前展开：
+// dryRun 是 loadConfig() 根据 --execute 一次性算出来的，晚 push 的话仍然是预览模式。
+if (argv.includes('--fix')) {
+  for (const flag of ['--answer', '--execute', '--only-missing']) if (!argv.includes(flag)) argv.push(flag);
+}
+
 // --courses：只读列出四个课程分组是否已填写，不连接浏览器、不占用 runner.lock。
 if (argv.includes('--courses')) {
   const rows = listCourses(loadRawConfig());
@@ -127,6 +133,13 @@ function runnerBusy(output) {
 }
 
 if (argv.includes('--audit')) {
+    // 体检要看全部筛选范围内的任务；--fix 展开的 --only-missing 只用于「补做哪些」，
+    // 不能拿它缩小体检范围，否则报告里只剩要补的那几个。
+    let scopeQueue = queue;
+    if (argv.includes('--only-missing')) {
+      try { ({queue: scopeQueue} = await loadAnswerQueue({output, argv: argv.filter(a => a !== '--only-missing')})); }
+      catch { scopeQueue = queue; }
+    }
     // 以课程侧数据为准：本地记成 learning/failed 的任务，课程页显示已通过就不再重做。
     let courseLeafs = null;
     if (!argv.includes('--local-only')) {
@@ -141,14 +154,14 @@ if (argv.includes('--audit')) {
         // 登录过期时页面停在 SSO，reload 不会发出任何 course_progress 请求，必须说清原因。
         if (isLoginPage(page, {ssoHost: config.course?.login?.ssoHost || 'sso.unipus.cn'}))
           throw new Error('登录态已失效（页面停在 SSO 登录页）：请在专用 Edge 里重新登录后再体检');
-        const {leafs, failed} = await readCourseLeafs({page, tasks: queue});
+        const {leafs, failed} = await readCourseLeafs({page, tasks: scopeQueue});
         courseLeafs = leafs;
-        if (failed.length) console.log(`课程侧核对：${failed.length} 个单元读取失败（unitId ${failed.map(f => f.unitId).join('、')}），这些任务按本地进度判断`);
+        if (failed.length) console.log(`课程侧核对：${failed.length} 个单元读取失败（${failed.slice(0, 3).map(f => `${f.unitId}: ${f.reason}`).join('；')}），这些任务按本地进度判断`);
       } catch (error) {
         console.log(`课程侧核对跳过：${error.message}`);
       }
     }
-    const report = auditQueue(queue, progress, {courseLeafs});
+    const report = auditQueue(scopeQueue, progress, {courseLeafs});
     console.log(formatAudit(report));
     await fs.writeFile(path.join(output, 'audit.json'), JSON.stringify({
       course: config.course.key,
@@ -161,7 +174,7 @@ if (argv.includes('--audit')) {
     if (!argv.includes('--fix')) process.exit(report.pending.length ? 1 : 0);
     if (!report.pending.length) process.exit(0);
     console.log('\n开始补做未完成的任务…');
-    argv.push('--answer', '--execute', '--only-missing');
+    // --answer / --execute / --only-missing 已在启动时展开，这里直接往下走即可。
   } else {
     console.log(formatQueue(queue, progress));
     console.log('\n用 --from <序号或路径片段> 从其中某个任务开始，例如：node src/runner.mjs --answer --execute --unit 3 --from "Section C/Translation/Task 1"');

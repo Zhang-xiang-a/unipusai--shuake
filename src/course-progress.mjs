@@ -30,30 +30,35 @@ export async function captureProgressUrl(page, {timeoutMs = 30000} = {}) {
 }
 
 /**
- * 按单元批量拉取 course_progress，汇总成 leafId -> leaf 的映射。
- * 单个单元失败不影响其他单元，返回的 failed 里会记下原因。
+ * 逐个单元打开该单元的第一个任务，拦截页面自己发出的 course_progress 响应。
+ * 不自己 fetch：该接口带鉴权头，自建请求会 401。
  */
 export async function readCourseLeafs({page, tasks, timeoutMs = 30000}) {
-  const template = await captureProgressUrl(page, {timeoutMs});
   const unitIds = [...new Set(tasks.map(task => unitIdOf(task.url)))].filter(Boolean);
   const leafs = {};
   const failed = [];
   for (const unitId of unitIds) {
-    const url = swapUnitId(template, unitId);
+    const sample = tasks.find(task => unitIdOf(task.url) === unitId);
+    if (!sample?.url) { failed.push({unitId, reason: '没有该单元的任务地址'}); continue; }
     try {
-      const body = await page.evaluate(async target => {
-        const response = await fetch(target, {credentials: 'include'});
-        return {ok: response.ok, status: response.status, text: await response.text()};
-      }, url);
-      if (!body?.ok) { failed.push({unitId, reason: `HTTP ${body?.status}`}); continue; }
-      const data = JSON.parse(body.text);
+      const pending = page.waitForResponse(response => {
+        try {
+          const url = new URL(response.url());
+          return response.ok() && url.pathname.includes('/course_progress/')
+            && url.pathname.split('/').at(-3) === unitId;
+        } catch { return false; }
+      }, {timeout: timeoutMs});
+      // 导航失败（超时/被弹窗拦）不影响已经拿到的响应。
+      await page.goto(sample.url, {waitUntil: 'domcontentloaded', timeout: timeoutMs}).catch(() => {});
+      const response = await pending;
+      const data = await response.json();
       if (data.code !== 0) { failed.push({unitId, reason: `code ${data.code}`}); continue; }
       Object.assign(leafs, data.rt?.leafs || {});
     } catch (error) {
-      failed.push({unitId, reason: String(error.message).slice(0, 160)});
+      failed.push({unitId, reason: String(error.message).split('\n')[0].slice(0, 120)});
     }
   }
-  return {leafs, failed, unitCount: unitIds.length, template};
+  return {leafs, failed, unitCount: unitIds.length};
 }
 
 /** 课程侧是否已完成：state.pass 为 1 或 2 表示通过。 */
