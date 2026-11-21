@@ -126,7 +126,8 @@
       "video": "normal_play_until_ended",
       "readingSeconds": 10,
       "vocabulary": "next_until_last_then_quiz",
-      "subtasks": "track_full_unit_section_tab_task_path"
+      "subtasks": "track_full_unit_section_tab_task_path",
+      "commentReply": "666"
     },
     "typeRules": {
       "manual": ["项目作品上传", "复习自评"],

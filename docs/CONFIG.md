@@ -152,6 +152,7 @@
 | `video` | `normal_play_until_ended` | 视频按正常速度播放到结束，不改进度。 |
 | `vocabulary` | `next_until_last_then_quiz` | 词汇卡片逐张点“下一个”，完成后进入练习。 |
 | `subtasks` | `track_full_unit_section_tab_task_path` | 任务进度按“单元/栏目/页签/子任务”完整路径记录。 |
+| `commentReply` | `666` | 评论 / 讨论区任务（页面是「我来评论」+「发 布」）自动发布的文字。评论区已有内容时不再重复发布。 |
 
 ## 4. `defaults.typeRules`
 

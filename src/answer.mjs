@@ -8,6 +8,7 @@ import {decideStalledRecovery, isSubmitControl, roundSignature, nextStall, actio
 import {canContinueReplyFailure, shouldSkipRecord} from './policy.mjs';
 import {isChoiceControl,choiceSubmitPlan} from './choice.mjs';
 import {isLoginPage} from './browser-session.mjs';
+import {inspectComment, postComment} from './comment.mjs';
 
 // 听力关键词来自课程配置（course.listeningKeywords）；不传时用内置默认，保持旧行为。
 export function isListeningTask(task, text='', keywords) {
@@ -231,6 +232,19 @@ export async function answerQueue({context,solver,output,gate,wait,snapshot,ask,
     // 只有 runnerPolicy.taskFailure=stop 时才像旧行为一样整体中断。
     try {
     if(await consumeSkip({page,output,t,progress,save,label}))continue;
+    // 评论 / 讨论区任务：页面是「我来评论」+「发 布」，和学生答题不是一套控件，
+    // 交给模型只会点到禁用的按钮，所以直接按配置填一句话发布。
+    const comment=await inspectComment(page);
+    if(comment.isComment) {
+      const reply=String(course.learningPolicy?.commentReply || '666');
+      console.log(`${tag} 评论任务：自动填写「${reply}」`);
+      if(dryRun){console.log('评论任务仅预览，未发布');if(++steps>=maxSteps)return;continue;}
+      const result=await postComment({page,text:reply,gate,wait});
+      progress.tasks[t.key]={...progress.tasks[t.key],status:'submitted',evidence:result,updated:new Date().toISOString()};await save();
+      console.log(`${tag} 评论完成（${result.status}）`);
+      if(++steps>=maxSteps)return;
+      continue;
+    }
     const listeningWithQuestions=isListeningTask(t,await page.locator('main').innerText(),listeningKeywords) && await page.locator('main input:not([type=hidden]),main textarea,main .question-common-abs-choice,main [role=radio]').filter({visible:true}).count()>0;
     const learning=!listeningWithQuestions && ['阅读或尚未识别的交互','音视频学习','词汇卡片'].includes(t.type);
     console.log(`${tag} ${learning?'学习':'答题'}：Unit ${t.unit} / ${t.path.join(' / ')}  [${t.type||'未知题型'}]`);

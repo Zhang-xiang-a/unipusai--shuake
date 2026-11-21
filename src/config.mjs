@@ -82,6 +82,8 @@ export const DEFAULTS = {
   learningPolicy: {
     video: 'normal_play_until_ended',
     readingSeconds: 10,
+    // 评论 / 讨论区任务的自动回复内容；页面有「我来评论」输入框时直接发这句。
+    commentReply: '666',
     vocabulary: 'next_until_last_then_quiz',
     subtasks: 'track_full_unit_section_tab_task_path',
   },
