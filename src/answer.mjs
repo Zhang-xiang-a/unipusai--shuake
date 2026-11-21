@@ -98,6 +98,13 @@ export async function loadAnswerQueue({output, argv = process.argv, unitCount = 
   });
   const typeIndex=argv.indexOf('--type');
   if(typeIndex>=0)queue=queue.filter(t=>t.type===argv[typeIndex+1]);
+  // --path 按层级路径片段过滤，用来「只刷某一块」。
+  // 例：--path "Unit preview" 只留每个单元开头的 Quotation / Preview。
+  const pathIndex=argv.indexOf('--path');
+  if(pathIndex>=0){
+    const needle=String(argv[pathIndex+1]??'').trim().toLowerCase();
+    if(needle)queue=queue.filter(t=>t.path.some(p=>String(p).toLowerCase().includes(needle)));
+  }
   const unitIndex=argv.indexOf('--unit');
   let unit=null;
   if(unitIndex>=0) {

@@ -88,6 +88,60 @@ function gap() { console.log(''); }
 
 // ─────────────────────── 子进程（继承 stdio）───────────────────────
 
+// spawnSync 会阻塞事件循环，Ctrl+C 期间 Node 收不到任何信号，看起来就是「按了没用」。
+// 所以一律用异步 spawn，并记录当前子进程，收到 SIGINT 时连子进程一起收掉。
+let activeChild = null;
+let interrupted = false;
+
+function hardKill(child) {
+  if (!child || child.exitCode !== null || child.signalCode) return;
+  try {
+    if (process.platform === 'win32') {
+      // Windows 上 kill('SIGINT') 不可靠，taskkill /T 才能带走整棵子进程树。
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {stdio: 'ignore'});
+    } else {
+      child.kill('SIGKILL');
+    }
+  } catch { /* 进程可能已经自己退了 */ }
+}
+
+process.on('SIGINT', () => {
+  if (interrupted) {
+    // 连按两次就立刻走，不再等。
+    hardKill(activeChild);
+    process.exit(130);
+  }
+  interrupted = true;
+  process.stdout.write('\n\n  收到 Ctrl+C，正在停止……\n');
+  hardKill(activeChild);
+  // 给子进程一点收尾时间（它自己也会保存进度），然后退出。
+  setTimeout(() => process.exit(130), 2000);
+});
+
+/** 异步跑一个子进程，返回退出码。Ctrl+C 时会被 SIGINT 处理器打断。 */
+function runChild(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    rl?.pause();
+    let child;
+    try {
+      child = spawn(command, args, {cwd: ROOT_DIR, stdio: 'inherit', ...options});
+    } catch (error) {
+      rl?.resume();
+      reject(error);
+      return;
+    }
+    activeChild = child;
+    const settle = (code, error) => {
+      activeChild = null;
+      rl?.resume();
+      if (error) reject(error);
+      else resolve(code);
+    };
+    child.on('error', error => settle(null, error));
+    child.on('exit', code => settle(code ?? 1, null));
+  });
+}
+
 /**
  * 跑一个项目内的 node 脚本。用 process.execPath 而不是 'node'，
  * 这样用的是当前运行的这个 Node（可能是 runtime\node\node.exe）。
@@ -95,38 +149,26 @@ function gap() { console.log(''); }
 async function runNode(script, args = [], {allowFail = false, label = ''} = {}) {
   const full = path.join(ROOT_DIR, 'src', script);
   if (!fs.existsSync(full)) throw new Error(`缺少脚本 src/${script}，发行包可能不完整`);
-  rl?.pause();
   gap();
-  const result = spawnSync(process.execPath, [full, ...args], {
-    cwd: ROOT_DIR,
-    stdio: 'inherit',
-    env: process.env,
-  });
-  rl?.resume();
+  const status = await runChild(process.execPath, [full, ...args], {env: process.env});
   gap();
-  if (result.error) throw result.error;
-  if (result.status !== 0 && !allowFail) {
-    throw new Error(`${label || script} 执行失败（退出码 ${result.status}）。上面的输出里有具体原因。`);
+  if (status !== 0 && !allowFail) {
+    throw new Error(`${label || script} 执行失败（退出码 ${status}）。上面的输出里有具体原因。`);
   }
-  return result.status;
+  return status;
 }
 
 async function runNpm(args, {allowFail = false, label = ''} = {}) {
-  rl?.pause();
   gap();
-  const result = spawnSync('npm', args, {
-    cwd: ROOT_DIR,
-    stdio: 'inherit',
+  const status = await runChild('npm', args, {
     shell: true,
     env: {...process.env, npm_config_yes: 'true'},
   });
-  rl?.resume();
   gap();
-  if (result.error) throw result.error;
-  if (result.status !== 0 && !allowFail) {
-    throw new Error(`${label || 'npm ' + args.join(' ')} 执行失败（退出码 ${result.status}）`);
+  if (status !== 0 && !allowFail) {
+    throw new Error(`${label || 'npm ' + args.join(' ')} 执行失败（退出码 ${status}）`);
   }
-  return result.status;
+  return status;
 }
 
 // ───────────────────────────── 配置读写 ─────────────────────────────
@@ -738,7 +780,7 @@ async function stepWatch() {
 
 // ───────────────────────────── 报告 ─────────────────────────────
 
-function printReport(course, stats, who) {
+function printReport(course, stats, who, {previewMode = false} = {}) {
   gap();
   console.log(cyan('═'.repeat(58)));
   console.log(cyan(bold('  本次刷课结果')));
@@ -752,6 +794,14 @@ function printReport(course, stats, who) {
     info(`其中视频/阅读学满：${bold(formatDuration(stats.learningSeconds))}`);
   }
   gap();
+  if (previewMode) {
+    // 刷时长只看 preview 这一小块，报总任务数没意义
+    const previewDone = stats.learned;
+    info(`这次刷的是 ${bold('1-6 单元的 preview')}，共 12 个任务`);
+    info(`  已学完：${green(bold(String(previewDone)))} 个`);
+    info(dim('  学习时长会累加到课程的「必修学习时长」里。'));
+    gap();
+  } else {
   info(`必做任务：${bold(String(stats.total))} 个`);
   info(`  已完成：${green(bold(String(stats.done)))} 个` + dim(`（答题 ${stats.submitted}，学习 ${stats.learned}）`));
   if (stats.failed > 0) {
@@ -760,6 +810,7 @@ function printReport(course, stats, who) {
     info(`  ${green('全部搞定')}`);
   }
   gap();
+  }
 
   const problems = [];
   for (const f of stats.failedList) {
@@ -824,6 +875,66 @@ function bless() {
 
 // ───────────────────────────── 主流程 ─────────────────────────────
 
+/** 第 0 步：先问这次是刷课还是刷时长。两条路后面完全不同。 */
+async function stepMode() {
+  console.log(cyan('━'.repeat(58)));
+  console.log(cyan('  先确认一件事'));
+  console.log(cyan('━'.repeat(58)));
+
+  gap();
+  info(bold('  1) 刷课') + dim('    —— 把这本书记分、答题、上传全部做完'));
+  info(bold('  2) 刷时长') + dim('  —— 只把 1-6 单元开头的视频/阅读挂满，涨学习时长'));
+  gap();
+  info(dim('刷时长不答题，所以不用配模型，快得多。'));
+  gap();
+
+  for (;;) {
+    const answer = String(await ask('选 1 还是 2？（直接回车=1 刷课）')).trim();
+    if (!answer || answer === '1' || ['刷课', '课', 'course'].includes(answer.toLowerCase())) return 'course';
+    if (answer === '2' || ['刷时长', '时长', 'time', 'watch'].includes(answer.toLowerCase())) return 'watch';
+    warn('输 1 或 2 就行。');
+  }
+}
+
+/** 刷时长：只跑 1-6 单元的 Unit preview，不碰答题。 */
+async function stepWatchOnly(course, config) {
+  currentCourseKey = course.courseKey;
+
+  banner(4, 5, '登录 → 采集 → 挂满 1-6 单元的 preview');
+
+  const who = await stepLogin(config);
+
+  gap();
+  info(dim('刷时长不需要模型，跳过模型配置。'));
+  const setupStatus = await runNode('runner.mjs', ['--setup'], {allowFail: true, label: '登录态保存'});
+  if (setupStatus !== 0) {
+    throw new Error('登录态没保存成功。回到那个 Edge 窗口，把这本书点开、看到单元列表，再重新双击 一键刷课.bat。');
+  }
+  ok('登录态已保存');
+
+  const startedAt = Date.now();
+
+  gap();
+  info(bold('采集这本书的题目清单'));
+  const crawlStatus = await runNode('runner.mjs', ['--crawl', '--quiet'], {allowFail: true, label: '采集'});
+  if (crawlStatus !== 0) {
+    throw new Error('采集没成功。确认专用 Edge 里能看到这本书的单元列表，再重试。');
+  }
+
+  gap();
+  info(bold('开始把 1-6 单元的 preview 挂满'));
+  info(dim('12 个任务（每单元 Quotation + Preview），只学不答题'));
+  gap();
+
+  // --path 只留路径里带 "Unit preview" 的任务；再 --quiet 关掉逐条清单
+  const status = await runNode('runner.mjs',
+    ['--answer', '--execute', '--path', 'Unit preview', '--quiet'],
+    {allowFail: true, label: '刷 preview'});
+
+  const stats = summarize(course.courseKey, startedAt);
+  return {...stats, who, previewMode: true, runStatus: status};
+}
+
 async function main() {
   console.log('');
   console.log(cyan('╔' + '═'.repeat(56) + '╗'));
@@ -835,25 +946,38 @@ async function main() {
   rl = makeReadline();
 
   try {
+    const mode = await stepMode();
+
     await stepEnv();
-    const config0 = readJson(CONFIG_FILE, {});
     const course = await stepCourse();
-    await stepModel();
 
-    // 模型配置写进 .env，但 config.json 里的 answerSource 要确保是 api
-    const config = readJson(CONFIG_FILE, {});
-    config.courses[course.courseKey].answerSource = config.courses[course.courseKey].answerSource || 'openai-api';
-    writeJson(CONFIG_FILE, config);
+    if (mode === 'watch') {
+      const config = readJson(CONFIG_FILE, {});
+      currentCourseKey = course.courseKey;
+      const stats = await stepWatchOnly(course, config);
 
-    currentCourseKey = course.courseKey;
-    const stats = await stepRun(course, config);
+      closeReadline();
+      rl = makeReadline();
+      printReport(course, stats, stats.who, {previewMode: true});
+      bless();
+    } else {
+      await stepModel();
 
-    closeReadline();
-    rl = makeReadline();
-    printReport(course, stats, stats.who);
+      // 模型配置写进 .env，但 config.json 里的 answerSource 要确保是 api
+      const config = readJson(CONFIG_FILE, {});
+      config.courses[course.courseKey].answerSource = config.courses[course.courseKey].answerSource || 'openai-api';
+      writeJson(CONFIG_FILE, config);
 
-    await stepWatch();
-    bless();
+      currentCourseKey = course.courseKey;
+      const stats = await stepRun(course, config);
+
+      closeReadline();
+      rl = makeReadline();
+      printReport(course, stats, stats.who);
+
+      await stepWatch();
+      bless();
+    }
 
     gap();
     info(dim('这个窗口可以关了。下次想刷别的课，重新双击 一键刷课.bat。'));

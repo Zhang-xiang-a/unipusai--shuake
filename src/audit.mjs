@@ -33,7 +33,7 @@ export function auditQueue(queue, progress, {courseLeafs = null} = {}) {
   return {total: queue.length, done, unknown, failed, other, pending, courseVerified, courseChecked: !!courseLeafs};
 }
 
-export function formatAudit(report) {
+export function formatAudit(report, {quiet = false} = {}) {
   const lines = [];
   lines.push(`必修任务体检：共 ${report.total} 个`);
   lines.push(`  已完成 ${report.done.length}${report.courseChecked ? `（其中 ${report.courseVerified} 个由课程侧确认）` : ''}`);
@@ -53,6 +53,12 @@ export function formatAudit(report) {
     byUnit.get(task.unit).push(task);
   }
   lines.push('');
+  if (quiet) {
+    // 安静模式：只报总数和分布，不打三百行逐条清单。
+    const units = [...byUnit.keys()].sort((a, b) => a - b);
+    lines.push(`未完成 ${pending.length} 个，分布在 Unit ${units.join('、Unit ')}`);
+    return lines.join('\n');
+  }
   lines.push(`未完成 ${pending.length} 个：`);
   for (const unit of [...byUnit.keys()].sort((a, b) => a - b)) {
     lines.push(`  Unit ${unit}`);

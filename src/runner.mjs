@@ -30,7 +30,7 @@ let fixKeys = null;
 const KNOWN_FLAGS = new Set([
   '--all','--answer','--audit','--course','--courses','--crawl','--current','--depth','--dry-run','--execute','--fix',
   '--from','--from-task','--from-unit','--inspect','--list','--local-only','--new-chat','--only-missing','--retry-skipped','--setup',
-  '--skip-banked-cloze','--steps','--tasks','--text-only','--type','--unit','--yes','--help',
+  '--skip-banked-cloze','--steps','--tasks','--text-only','--type','--unit','--yes','--help','--quiet','--path',
 ]);
 function suggestFlag(flag) {
   const target = flag.slice(2);
@@ -179,7 +179,7 @@ if (argv.includes('--audit')) {
       }
     }
     const report = auditQueue(scopeQueue, progress, {courseLeafs});
-    console.log(formatAudit(report));
+    console.log(formatAudit(report, {quiet: argv.includes('--quiet')}));
     await fs.writeFile(path.join(output, 'audit.json'), JSON.stringify({
       course: config.course.key,
       checkedAt: new Date().toISOString(),
@@ -202,7 +202,7 @@ if (argv.includes('--audit')) {
     console.log('\n开始补做未完成的任务…');
     // --answer / --execute / --only-missing 已在启动时展开，这里直接往下走即可。
   } else {
-    console.log(formatQueue(queue, progress));
+    if (!argv.includes('--quiet')) console.log(formatQueue(queue, progress));
     console.log('\n用 --from <序号或路径片段> 从其中某个任务开始，例如：node src/runner.mjs --answer --execute --unit 3 --from "Section C/Translation/Task 1"');
     process.exit(0);
   }
