@@ -71,8 +71,25 @@ async function consumeSkip({page,output,t,progress,save,label}) {
 }
 
 export async function loadAnswerQueue({output, argv = process.argv, unitCount = 6, manualTaskTypes, onlyKeys = null, skipTaskTypes}) {
-  const inventory=JSON.parse(await fs.readFile(path.join(output,'inventory','required-tasks.json'),'utf8'));
-  const report=JSON.parse(await fs.readFile(path.join(output,'inventory','type-report.json'),'utf8'));
+  // 采集产物缺失时给可操作的提示，而不是甩一个 ENOENT 堆栈。
+  const readInventory = async name => {
+    const file = path.join(output, 'inventory', name);
+    try {
+      return JSON.parse(await fs.readFile(file, 'utf8'));
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        throw new Error([
+          `还没有任务清单：${file}`,
+          '这个文件由采集步骤生成，当前目录是空的。',
+          '请先运行：npm run crawl（换书、换课程、课程目录更新后都要重跑一次）',
+          '采集完再执行现在的命令。',
+        ].join('\n'));
+      }
+      throw error;
+    }
+  };
+  const inventory=await readInventory('required-tasks.json');
+  const report=await readInventory('type-report.json');
   const types=new Map(Object.entries(report.groups).flatMap(([type,ts])=>ts.map(t=>[t.key,type])));
   let queue=selectQueue(inventory,types,{
     skipBankedCloze:argv.includes('--skip-banked-cloze'),

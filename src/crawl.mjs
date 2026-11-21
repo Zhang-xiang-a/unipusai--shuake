@@ -15,8 +15,29 @@ export async function crawlRequired({context, overview, solver, config, output, 
   });
   await wait(3500);
   const unitTabs = overview.locator('[class*="unipus-tabs_unitTabItemContainer"]');
-  const unitCount = await unitTabs.count();
-  if (!unitCount) throw new Error('未找到目录单元，无法确认必修范围');
+  // 目录页是异步渲染的，机器慢或第一次进课（要拉课程数据）都可能超过 3.5 秒。
+  // 轮询等待而不是死等一次，最多等 45 秒。
+  let unitCount = 0;
+  for (let i = 0; i < 45; i++) {
+    unitCount = await unitTabs.count();
+    if (unitCount) break;
+    await wait(1000);
+  }
+  if (!unitCount) {
+    const here = overview.url().slice(0, 110);
+    const bodyTail = await overview.evaluate(() =>
+      String(document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 160)).catch(() => '');
+    throw new Error([
+      '在课程目录页没找到单元页签，无法确认必修范围。',
+      `  当前地址：${here}`,
+      `  页面开头：${bodyTail || '（读不到页面文字）'}`,
+      '常见原因：',
+      '  1) 还没登录：先在专用 Edge 窗口里登录，再跑 npm run setup',
+      '  2) courseId 填错：应该是地址栏 resource-detail/ 后面那串数字',
+      '  3) 课程页需要手动进入：先在那个 Edge 窗口里点进课程，确认能看到 Unit 1~6 的页签',
+      '确认能看到目录后重跑 npm run crawl。',
+    ].join('\n'));
+  }
   const manifest = [];
   for (let ui=0;ui<unitCount;ui++) {
     await gate(); await unitTabs.nth(ui).click(); await wait(900);
