@@ -55,6 +55,29 @@ test('showing a minimized window restores it without closing or navigating tabs'
   },detach:async()=>{detached++;}};
   await showBrowserPage({newCDPSession:async()=>session},{bringToFront:async()=>{front++;}});
   assert.deepEqual(commands.map(x=>x.method),['Browser.getWindowForTarget','Browser.setWindowBounds']);
-  assert.deepEqual(commands[1].params,{windowId:7,bounds:{windowState:'normal'}});
+  // 最小化时没有可用尺寸，按默认大小摆回主屏左上角。
+  assert.deepEqual(commands[1].params,{windowId:7,bounds:{windowState:'normal',left:60,top:30,width:1440,height:900}});
   assert.equal(front,1);assert.equal(detached,1);
+});
+
+test('a window parked off-screen is pulled back into view',async()=>{
+  const commands=[];
+  const session={send:async(method,params)=>{
+    commands.push({method,params});
+    if(method==='Browser.getWindowForTarget')return {windowId:9,bounds:{windowState:'normal',left:-3200,top:-200,width:1400,height:860}};
+  },detach:async()=>{}};
+  await showBrowserPage({newCDPSession:async()=>session},{bringToFront:async()=>{}});
+  const bounds=commands[1].params.bounds;
+  assert.equal(bounds.left,60); assert.equal(bounds.top,30);
+  assert.equal(bounds.width,1400); assert.equal(bounds.height,860);
+});
+
+test('a window already on screen keeps its position and size',async()=>{
+  const commands=[];
+  const session={send:async(method,params)=>{
+    commands.push({method,params});
+    if(method==='Browser.getWindowForTarget')return {windowId:11,bounds:{windowState:'normal',left:200,top:100,width:1200,height:800}};
+  },detach:async()=>{}};
+  await showBrowserPage({newCDPSession:async()=>session},{bringToFront:async()=>{}});
+  assert.deepEqual(commands[1].params.bounds,{windowState:'normal',left:200,top:100,width:1200,height:800});
 });
