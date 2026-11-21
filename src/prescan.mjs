@@ -33,6 +33,11 @@ function makeReadline() {
     console.log('\n  输入结束了，退出。');
     process.exit(0);
   });
+  // readline 等输入时会先截获 Ctrl+C，必须在这里也接住。
+  i.on('SIGINT', () => {
+    process.stdout.write('\n\n  收到 Ctrl+C，正在停止……\n');
+    stopNow();
+  });
   return i;
 }
 function closeReadline() { closingOnPurpose = true; rl?.close(); closingOnPurpose = false; }
@@ -52,13 +57,23 @@ function hardKill(child) {
     } else child.kill('SIGKILL');
   } catch {}
 }
-function stopNow() {
-  hardKill(activeChild);
-  process.stdout.write('\n  已停止。\n');
-  process.exit(130);
+// 子脚本都没注册 SIGINT，收到信号本来就会自己退；这里只需要立刻退出。
+function stopNow(code = 130) {
+  try { activeChild?.kill(); } catch {}
+  process.stdout.write('\n\n  已停止。\n');
+  process.exit(code);
 }
-process.on('SIGINT', () => { if (interrupted) return stopNow(); interrupted = true; process.stdout.write('\n\n  收到 Ctrl+C，正在停止……\n'); stopNow(); });
-process.on('SIGBREAK', () => { interrupted = true; stopNow(); });
+// 只在 prescan 自己作为主程序运行时才接管信号。
+//
+// 这个文件会被 wizard.mjs import（要 readScan）。如果像以前那样在模块顶层就
+// process.on('SIGINT')，那么 wizard 一 import 它，prescan 的处理器就抢先占位；
+// 用户按 Ctrl+C 时它先执行 process.exit(130)，wizard 自己的处理器永远跑不到，
+// 而它闭包里的 activeChild 又是 prescan 的（永远是 null），
+// 结果就是——wizard 正在跑的子进程根本没人收。这就是「Ctrl+C 退不掉」的真凶。
+function installSignalHandlers() {
+  process.on('SIGINT', () => { if (interrupted) return stopNow(); interrupted = true; process.stdout.write('\\n\\n  收到 Ctrl+C，正在停止……\\n'); stopNow(); });
+  process.on('SIGBREAK', () => { interrupted = true; stopNow(); });
+}
 
 function runChild(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -189,6 +204,7 @@ async function waitLogin() {
 // ─────────────────────── 主流程 ───────────────────────
 
 async function main() {
+  installSignalHandlers();
   console.log('');
   console.log(cyan('  ╔' + '═'.repeat(54) + '╗'));
   console.log(cyan('  ║') + bold('         U 校园 · 预扫描（提前存好题目清单）             ') + cyan('║'));

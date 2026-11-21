@@ -24,6 +24,19 @@ import {parseCourses, resolveChoice} from './switch-course.mjs';
 import {readScan} from './prescan.mjs';
 
 const COURSES_FILE = path.join(ROOT_DIR, 'courses.txt');
+
+// ───────────────────── Ctrl+C 诊断日志 ─────────────────────
+// 三次都没修利索，靠猜不行了。这里把信号到达情况和子进程状态记下来，
+// 用户按一次 Ctrl+C，logs/wizard.log 里就能看出卡在哪一步。
+const DIAG_LOG = path.join(ROOT_DIR, 'logs', 'wizard.log');
+
+function diag(message) {
+  try {
+    fs.mkdirSync(path.dirname(DIAG_LOG), {recursive: true});
+    const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    fs.appendFileSync(DIAG_LOG, `[${stamp}] ${message}\n`);
+  } catch { /* 记日志失败不能影响主流程 */ }
+}
 const ENV_FILE = path.join(ROOT_DIR, '.env');
 
 // ─────────────────────────── 终端交互 ───────────────────────────
@@ -50,6 +63,14 @@ function makeReadline() {
     gap();
     process.exit(0);
   });
+    // 关键：readline 在等输入时会先截获 Ctrl+C 并 emit 自己的 'SIGINT'。
+    // 只挂 process.on('SIGINT') 不够——用户卡在「选 1 还是 2？」这类提示上
+    // 按 Ctrl+C，信号到不了 process 层，表现就是「按了完全没反应」。
+    iface.on('SIGINT', () => {
+      diag(`readline SIGINT 到达 pid=${process.pid} activeChild=${activeChild?.pid ?? '无'}`);
+      process.stdout.write('\n\n  收到 Ctrl+C，正在停止……\n');
+      stopNow();
+    });
   return iface;
 }
 function closeReadline() {
@@ -107,22 +128,31 @@ function hardKill(child) {
   } catch { /* 进程可能已经自己退了 */ }
 }
 
-function stopNow() {
-  // taskkill 是同步的，杀完再退；不留 setTimeout，否则用户会觉得「按了没反应」。
-  hardKill(activeChild);
-  process.stdout.write('\n  已停止。进度都存着，下次双击就能接着刷。\n');
-  process.exit(130);
+/**
+ * 收到 Ctrl+C 时的收尾。
+ *
+ * 关键认识：项目里所有子脚本（runner / crawl / watch / browser）都没有注册
+ * SIGINT 处理器，也就是它们用的是 Node 默认行为——收到信号立刻自己退出。
+ * Ctrl+C 又是发给整个进程组的，所以子进程本来就会跟着一起死。
+ *
+ * 既然如此就别去 taskkill：既多余，spawnSync 一卡住还会变成新的卡点。
+ * 只做一件事——打印一句，然后立刻退。
+ */
+function stopNow(code = 130) {
+  try { activeChild?.kill(); } catch { /* 它自己已经在退了 */ }
+  process.stdout.write('\n\n  已停止。进度都存着，下次双击就能接着刷。\n');
+  process.exit(code);
 }
 
 process.on('SIGINT', () => {
-  if (interrupted) return stopNow();   // 连按两次立刻走
+  diag(`process SIGINT 到达 pid=${process.pid} activeChild=${activeChild?.pid ?? '无'}`);
   interrupted = true;
-  process.stdout.write('\n\n  收到 Ctrl+C，正在停止……\n');
   stopNow();
 });
 
 // Windows 上 Ctrl+Break 走的是 SIGBREAK，顺手也接住。
 process.on('SIGBREAK', () => { interrupted = true; stopNow(); });
+
 
 /** 异步跑一个子进程，返回退出码。Ctrl+C 时会被 SIGINT 处理器打断。 */
 function runChild(command, args, options = {}) {
@@ -1011,6 +1041,7 @@ async function main() {
   info(dim('整个流程会问你几个问题，其余全自动。随时可以按 Ctrl+C 退出。'));
 
   rl = makeReadline();
+  diag(`向导启动 pid=${process.pid} node=${process.version} tty=${process.stdin.isTTY} platform=${process.platform} sigintListeners=${process.listenerCount('SIGINT')}`);
 
   try {
     const mode = await stepMode();
