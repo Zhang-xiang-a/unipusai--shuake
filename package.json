@@ -28,7 +28,21 @@
     "audit-missing": "node src/runner.mjs --audit",
     "watch": "node src/watch.mjs",
     "fix-missing": "node src/runner.mjs --audit --fix",
-    "video": "node src/video-check.mjs"
+    "video": "node src/video-check.mjs",
+    "presetup": "node src/preflight.mjs",
+    "prestart": "node src/preflight.mjs",
+    "precrawl": "node src/preflight.mjs",
+    "prelist": "node src/preflight.mjs",
+    "precourses": "node src/preflight.mjs",
+    "prebrowser": "node src/preflight.mjs",
+    "prewatch": "node src/preflight.mjs",
+    "preverify": "node src/preflight.mjs",
+    "preinventory": "node src/preflight.mjs",
+    "preaudit": "node src/preflight.mjs",
+    "preaudit-missing": "node src/preflight.mjs",
+    "prefix-missing": "node src/preflight.mjs",
+    "prevideo": "node src/preflight.mjs",
+    "prereset": "node src/preflight.mjs"
   },
   "dependencies": {
     "playwright": "^1.56.0"
