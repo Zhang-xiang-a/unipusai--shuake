@@ -777,6 +777,19 @@ npm run crawl                              # 重新采集
 
 ---
 
+### 改代码时注意：两个编码坑
+
+这两个都是踩过才记住的，动文件前先看一眼。
+
+**`.bat` 必须纯 ASCII。**
+cmd 按字节偏移逐行解析。多字节字符会让它把下一行的起点算错，报 `'et' is not recognized` 这种莫名错误。所以 `.bat` 里一句中文都不放，所有中文提示都在 `src\*.mjs` 里。
+
+**含中文的 `.ps1` 必须带 UTF-8 BOM。**
+Windows PowerShell 5.1 读没有 BOM 的文件时，按系统 ANSI 代码页解析（中文系统 = GBK）。UTF-8 的中文会被读成乱码，引号配对跟着错乱，整个脚本 `ParserError`，一行都跑不了。
+
+这个坑特别阴：`scripts\install-node.ps1` 正是**没装 Node 的机器**才会执行的那个脚本。它一崩，Node 永远装不上，用户看到的就是「双击报错」。
+
+`test\encoding.test.mjs` 会检查这两条，`npm test` 跑一遍就能发现。用 VSCode 改完 `.ps1` 如果变成了「UTF-8 无 BOM」，测试会直接报出来是哪个文件。
 ## 8. 文件都是干什么的
 
 ```

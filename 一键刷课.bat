@@ -36,7 +36,11 @@ if not errorlevel 1 (
 echo  Node.js not found. Downloading a portable copy (one time only)...
 echo  No action needed. This may take a few minutes on slow networks.
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\install-node.ps1"
+REM Use the full path: some machines have a trimmed PATH where plain
+REM "powershell" is not resolvable, and then the installer never runs.
+set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%PS_EXE%" set "PS_EXE=powershell"
+"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "scripts\install-node.ps1"
 echo.
 
 if exist "runtime\node\node.exe" (
