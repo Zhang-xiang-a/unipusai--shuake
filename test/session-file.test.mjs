@@ -45,10 +45,26 @@ test('browser-profile 和 artifacts 都在 gitignore 里（本地文件不进仓
   assert.match(ignore, /artifacts/, 'artifacts 要忽略：里面有采集结果');
 });
 
-test('打包出来的测试包不带 browser-profile（里面有真实 cookies）', () => {
-  // 测试包目录若在本机，检查它确实没有这个目录
-  const pkg = 'C:/Users/Lenovo/Desktop/unipus-test-package';
-  if (!fs.existsSync(pkg)) return; // 别的机器上没有这个路径，跳过
-  assert.equal(fs.existsSync(path.join(pkg, 'browser-profile')), false,
-    '测试包里不能有 browser-profile：runner-session.json 含真实登录态');
+test('打出来的 zip 里没有登录态和密钥', () => {
+  // 不能去检查解压后的工作目录：那是台"正在用"的机器，browser-profile
+  // 是运行时正常产物，跑一次向导就会长出来。要检查的是**分发包本身**。
+  //
+  // zip 里每个条目的文件名是明文存放的（不参与压缩），所以直接在二进制里
+  // 搜文件名就够了，不用解压。
+  const zips = [
+    'C:/Users/Lenovo/Desktop/unipus-test-package.zip',
+    'C:/Users/Lenovo/Desktop/unipus-runner-product.zip',
+  ];
+  const forbidden = [
+    ['browser-profile', '里面有 runner-session.json，是真实登录态'],
+    ['runner-session.json', '真实 cookies'],
+  ];
+  for (const zip of zips) {
+    if (!fs.existsSync(zip)) continue; // 别的机器上没这两个包，跳过
+    const buf = fs.readFileSync(zip);
+    for (const [needle, why] of forbidden) {
+      assert.equal(buf.includes(Buffer.from(needle)), false,
+        `${path.basename(zip)} 里出现了 ${needle} —— ${why}`);
+    }
+  }
 });

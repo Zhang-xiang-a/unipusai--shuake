@@ -12,6 +12,7 @@ import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {ROOT_DIR, CONFIG_FILE, ARTIFACTS_DIR, INVENTORY_DIR} from './paths.mjs';
 import {parseCourses, resolveChoice} from './switch-course.mjs';
+import {suspendReadline, isInterruptExit} from './terminal.mjs';
 
 const COURSES_FILE = path.join(ROOT_DIR, 'courses.txt');
 
@@ -71,25 +72,32 @@ function stopNow(code = 130) {
 // 而它闭包里的 activeChild 又是 prescan 的（永远是 null），
 // 结果就是——wizard 正在跑的子进程根本没人收。这就是「Ctrl+C 退不掉」的真凶。
 function installSignalHandlers() {
-  process.on('SIGINT', () => { if (interrupted) return stopNow(); interrupted = true; process.stdout.write('\\n\\n  收到 Ctrl+C，正在停止……\\n'); stopNow(); });
+  process.on('SIGINT', () => { if (interrupted) return stopNow(); interrupted = true; process.stdout.write('\n\n  收到 Ctrl+C，正在停止……\n'); stopNow(); });
   process.on('SIGBREAK', () => { interrupted = true; stopNow(); });
 }
 
 function runChild(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    rl?.pause();
+    const resumeReadline = suspendReadline(rl);
     let child;
     try { child = spawn(command, args, {cwd: ROOT_DIR, stdio: 'inherit', ...options}); }
-    catch (error) { rl?.resume(); reject(error); return; }
+    catch (error) { resumeReadline(); reject(error); return; }
     activeChild = child;
-    const settle = (code, error) => {
+    let settled = false;
+    const settle = (code, error, signal) => {
+      if (settled) return;
+      settled = true;
       activeChild = null;
-      rl?.resume();
-      if (interrupted) process.exit(130);
+      if (interrupted || isInterruptExit(code, signal)) {
+        interrupted = true;
+        stopNow();
+        return;
+      }
+      resumeReadline();
       if (error) reject(error); else resolve(code);
     };
     child.on('error', e => settle(null, e));
-    child.on('exit', c => settle(c ?? 1, null));
+    child.on('exit', (c, signal) => settle(c ?? 1, null, signal));
   });
 }
 
