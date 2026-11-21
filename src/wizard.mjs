@@ -879,11 +879,19 @@ function printReport(course, stats, who, {previewMode = false} = {}) {
   }
   gap();
   if (previewMode) {
-    // 刷时长只看 preview 这一小块，报总任务数没意义
-    const previewDone = stats.learned;
-    info(`这次刷的是 ${bold('1-6 单元的 preview')}，共 12 个任务`);
-    info(`  已学完：${green(bold(String(previewDone)))} 个`);
-    info(dim('  学习时长会累加到课程的「必修学习时长」里。'));
+    // 刷时长不看任务数，真正的进展在「必修学习时长」上
+    const watch = stats.watch || null;
+    info(`这次挂的是 ${bold('Unit 1-6 的 Preview 视频')}`);
+    if (watch && Number.isFinite(Number(watch.seconds))) {
+      const reached = formatDuration(Number(watch.seconds));
+      const target = Number(watch.targetSeconds) > 0 ? formatDuration(Number(watch.targetSeconds)) : '目标';
+      info(`  必修学习时长：${green(bold(reached))} / ${target}`);
+      const rounds = Number(watch.rounds);
+      if (Number.isFinite(rounds) && rounds > 0) info(dim(`  已完整循环 ${rounds} 轮`));
+    } else {
+      info(dim('  这轮没留下时长记录，进课程的「综合成绩」页可以自己核对。'));
+    }
+    info(dim('  时长会累加到课程的「必修学习时长」里。'));
     gap();
   } else {
   info(`必做任务：${bold(String(stats.total))} 个`);
@@ -1020,15 +1028,17 @@ async function stepWatchOnly(course, config) {
 
   gap();
   info(bold('开始把 1-6 单元的 preview 挂满'));
-  info(dim('12 个任务（每单元 Quotation + Preview），只学不答题'));
+  info(dim('Unit 1-6 各一个 Preview 视频，循环播放，只学不答题'));
   gap();
 
-  // --path 只留路径里带 "Unit preview" 的任务；再 --quiet 关掉逐条清单
-  const status = await runNode('runner.mjs',
-    ['--answer', '--execute', '--path', 'Unit preview', '--quiet'],
-    {allowFail: true, label: '刷 preview'});
+  // 刷时长走 watch.mjs：它自己筛 Preview、自己循环播放到目标时长，全程不碰模型。
+  // 以前这里调的是 runner.mjs --answer（答题模式），会强校验 OPENAI_MODEL，
+  // 于是刷时长在没配模型的机器上 4 秒就退出了。
+  const status = await runNode('watch.mjs', [], {allowFail: true, label: '挂时长'});
 
   const stats = summarize(course.courseKey, startedAt);
+  // watch.mjs 不写 answer-progress.json，时长进展在 watch-progress.json 里
+  stats.watch = readJson(path.join(ARTIFACTS_DIR, course.courseKey, 'watch-progress.json'), null);
   return {...stats, who, previewMode: true, runStatus: status};
 }
 
