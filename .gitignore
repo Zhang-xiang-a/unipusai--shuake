@@ -29,3 +29,6 @@ Thumbs.db
 *.zip
 *.7z
 *.rar
+
+# 临时测试脚本，别提交
+tmp-*
